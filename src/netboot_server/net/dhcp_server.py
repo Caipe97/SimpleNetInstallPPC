@@ -25,7 +25,7 @@ from ..catalog import Catalog, NetBootImage
 from ..events import EventBus
 from . import bsdp
 from .bsdp import BsdpMessageType, BsdpTag, ClientClass
-from .dhcp_packet import BOOTREQUEST, DhcpPacket, MessageType, Opt, ip_list
+from .dhcp_packet import BOOTREPLY, BOOTREQUEST, DhcpPacket, MessageType, Opt, ip_list
 from .leases import LeasePool
 
 IPv4 = ipaddress.IPv4Address
@@ -127,6 +127,17 @@ class DhcpBsdpServer(asyncio.DatagramProtocol):
         if (message_type == MessageType.INFORM and client_class
                 and BsdpTag.MESSAGE_TYPE in bsdp_options):
             return self._handle_bsdp(packet, client_class, bsdp_options)
+
+        if message_type is None:
+            # Plain BOOTP (no option 53). The Mac OS X 10.0 kernel sends this
+            # from nfs_boot to configure its interface before mounting an NFS root.
+            if self.config.mode == "full":
+                return self._handle_bootp(packet)
+            self.events.emit("dhcp", "bootp-ignored",
+                             "plain BOOTP request (a Mac OS X 10.0 kernel?) ignored: "
+                             "needs --dhcp-mode full, or a DHCP server that answers BOOTP",
+                             client=packet.mac, level=30)
+            return []
 
         if self.config.mode != "full":
             if client_class and message_type in (MessageType.DISCOVER, MessageType.REQUEST):
@@ -314,6 +325,29 @@ class DhcpBsdpServer(asyncio.DatagramProtocol):
             self._add_lease_options(reply, with_lease=False)
             return [(reply, self._destination(packet, MessageType.ACK))]
         return []
+
+    def _handle_bootp(self, packet: DhcpPacket) -> List[Reply]:
+        pool = self.config.pool
+        assert pool is not None
+        mac = packet.mac
+        existing = pool.lookup(mac)
+        ip = existing.ip if existing else pool.offer(mac, packet.ciaddr if int(packet.ciaddr) else None)
+        if ip is None or not pool.confirm(mac, ip):
+            self.events.emit("dhcp", "exhausted", "no address for BOOTP client", client=mac,
+                             level=40)
+            return []
+        reply = DhcpPacket(op=BOOTREPLY, htype=packet.htype, hlen=packet.hlen, xid=packet.xid,
+                           flags=packet.flags, giaddr=packet.giaddr, chaddr=packet.chaddr,
+                           yiaddr=ip, siaddr=self.config.server_ip)
+        # The 10.0 kernel only reads the subnet mask and router.
+        reply.options[Opt.SUBNET_MASK] = self.config.subnet.netmask.packed
+        if self.config.router:
+            reply.options[Opt.ROUTER] = self.config.router.packed
+        if mac in self.clients:
+            self.clients[mac].ip = str(ip)
+        self.events.emit("dhcp", "bootp", f"BOOTP reply {ip} (plain BOOTP client)",
+                         client=mac, ip=str(ip))
+        return [(reply, self._destination(packet, MessageType.ACK))]
 
     def _add_lease_options(self, reply: DhcpPacket, with_lease: bool = True) -> None:
         reply.options[Opt.SUBNET_MASK] = self.config.subnet.netmask.packed
