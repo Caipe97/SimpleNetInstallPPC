@@ -103,7 +103,8 @@ class BootparamServer(asyncio.DatagramProtocol):
         found = self.lookup(client_ip)
         if found is None:
             self.events.emit("bootparam", "whoami-unknown",
-                             f"WHOAMI from {client_ip}: no 10.0-style image for this client",
+                             f"WHOAMI from {client_ip}: neither its selected image nor the default has a "
+                             "RootDirectory key (the mounted, NFS-exported root volume)",
                              client=str(client_ip), level=30)
             return None
         mac, image = found
