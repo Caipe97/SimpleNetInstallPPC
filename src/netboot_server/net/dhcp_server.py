@@ -339,13 +339,32 @@ class DhcpBsdpServer(asyncio.DatagramProtocol):
         reply = DhcpPacket(op=BOOTREPLY, htype=packet.htype, hlen=packet.hlen, xid=packet.xid,
                            flags=packet.flags, giaddr=packet.giaddr, chaddr=packet.chaddr,
                            yiaddr=ip, siaddr=self.config.server_ip)
-        # The 10.0 kernel only reads the subnet mask and router.
         reply.options[Opt.SUBNET_MASK] = self.config.subnet.netmask.packed
         if self.config.router:
             reply.options[Opt.ROUTER] = self.config.router.packed
-        if mac in self.clients:
-            self.clients[mac].ip = str(ip)
-        self.events.emit("dhcp", "bootp", f"BOOTP reply {ip} (plain BOOTP client)",
+        record = self.clients.get(mac)
+        if record is not None:
+            record.ip = str(ip)
+        # Some firmware (the tray-loading iMac G3's) does BSDP LIST/SELECT, then
+        # boots from a plain BOOTP reply's file field. So also send the booter
+        # of the image this Mac selected, or the default image. The 10.0
+        # kernel's own BOOTP only reads the mask and router and ignores this.
+        image_note = "no boot file"
+        arch = record.arch if record and record.arch else "ppc"
+        image = None
+        if record is not None and record.selected_image is not None:
+            image = self.catalog.by_index(record.selected_image)
+        if image is None or not image.supports(arch, None):
+            image = self.catalog.default_for(arch, record.model if record else None)
+        if image is not None:
+            booter = image.booter_relpath(arch)
+            root_path = root_path_for(image, self.config)
+            if booter is not None and len(booter.encode()) <= 127:
+                reply.file = booter.encode()
+                if root_path:
+                    reply.options[Opt.ROOT_PATH] = root_path.encode()
+                image_note = f"booter {booter} ({image.name!r})"
+        self.events.emit("dhcp", "bootp", f"BOOTP reply {ip}, {image_note}",
                          client=mac, ip=str(ip))
         return [(reply, self._destination(packet, MessageType.ACK))]
 

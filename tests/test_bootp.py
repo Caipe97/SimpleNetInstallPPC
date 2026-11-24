@@ -11,7 +11,10 @@ from netboot_server.net.dhcp_packet import (BOOTREPLY, BOOTREQUEST, MAGIC_COOKIE
 from netboot_server.net.dhcp_server import DhcpBsdpServer, DhcpConfig
 from netboot_server.net.leases import LeasePool
 
-from helpers import CLIENT_MAC, SERVER_IP, RecordingBus
+from netboot_server.net import bsdp
+from netboot_server.net.bsdp import BsdpMessageType, BsdpTag
+
+from helpers import CLIENT_MAC, SERVER_IP, RecordingBus, bsdp_inform, make_image
 
 IP = ipaddress.IPv4Address
 SUBNET = ipaddress.IPv4Network("10.0.0.0/24")
@@ -70,6 +73,40 @@ class BootpTests(unittest.TestCase):
         server = self.server("bsdp-only")
         self.assertEqual(server.handle(DhcpPacket.decode(kernel_bootp_request())), [])
         self.assertIn(("dhcp", "bootp-ignored"), self.events.kinds())
+
+
+class FirmwareBootpTests(unittest.TestCase):
+    """Tray-loading iMac G3: BSDP LIST/SELECT, then boots from a plain BOOTP reply."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        make_image(root, 1, "Tiger", ("ppc",))
+        make_image(root, 2, "Cheetah", ("ppc",), protocol="NFS")
+        self.catalog = Catalog(root)
+        self.catalog.reload()
+        pool = LeasePool(IP("10.0.0.100"), IP("10.0.0.110"), excluded=[SERVER_IP])
+        config = DhcpConfig(server_ip=SERVER_IP, subnet=SUBNET, mode="full", pool=pool,
+                            http_base="http://10.0.0.1", nfs_export="/srv/images")
+        self.server = DhcpBsdpServer(config, self.catalog, RecordingBus())
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_bootp_after_select_names_the_selected_booter(self):
+        select = bsdp_inform(BsdpMessageType.SELECT, model="iMac,1", extra=[
+            (BsdpTag.SELECTED_BOOT_IMAGE, bsdp.u32(self.catalog.by_index(2).image_id))])
+        self.server.handle(DhcpPacket.decode(select.encode()))
+        [(reply, _)] = self.server.handle(DhcpPacket.decode(kernel_bootp_request()))
+        reply = DhcpPacket.decode(reply.encode())
+        self.assertEqual(reply.file, b"img2/ppc/booter")
+        self.assertEqual(reply.siaddr, SERVER_IP)
+        self.assertEqual(reply.options[Opt.ROOT_PATH], b"nfs:10.0.0.1:/srv/images:img2/root.dmg")
+
+    def test_bootp_without_select_uses_default_image(self):
+        self.catalog.default_index["ppc"] = 1
+        [(reply, _)] = self.server.handle(DhcpPacket.decode(kernel_bootp_request()))
+        self.assertEqual(reply.file, b"img1/ppc/booter")
 
 
 if __name__ == "__main__":
