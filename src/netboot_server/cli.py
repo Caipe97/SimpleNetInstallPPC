@@ -65,6 +65,15 @@ def build_parser() -> argparse.ArgumentParser:
     make.add_argument("--volume", type=int, help="volume number from 'inspect'")
     make.add_argument("--force", action="store_true", help="replace an existing folder")
 
+    mk = sub.add_parser("build-mkext",
+                        help="(re)build an image's mach.macosx.mkext from its root volume")
+    mk.add_argument("image", help="image folder name or index (see 'images')")
+    mk.add_argument("--all", action="store_true",
+                    help="include every kext, not only those needed at boot")
+    mk.add_argument("--no-compress", action="store_true", help="store kexts uncompressed")
+    mk.add_argument("--output", type=Path,
+                    help="write here instead of <image>/<arch>/mach.macosx.mkext (one arch only)")
+
     serve = sub.add_parser("serve", help="run the DHCP/BSDP, TFTP and HTTP services")
     serve.add_argument("--interface", "-i", required=True, help="interface to serve on, e.g. en0")
     serve.add_argument("--server-ip", type=_ip, help="address to use if the interface has several")
@@ -133,6 +142,33 @@ def cmd_make(args: argparse.Namespace, images_root: Path) -> int:
     return 0
 
 
+def cmd_build_mkext(args: argparse.Namespace, images_root: Path) -> int:
+    import time
+    from .imaging.mkext import build_from_volume
+    from .imaging.quick_image import mount_readonly
+    catalog = Catalog(images_root)
+    catalog.reload()
+    image = next((i for i in catalog.images
+                  if i.rel_dir == args.image or str(i.index) == args.image), None)
+    if image is None:
+        print(f"error: no image {args.image!r} in {images_root}", file=sys.stderr)
+        return 1
+    if args.output and len(image.architectures) != 1:
+        print("error: --output needs a single-architecture image", file=sys.stderr)
+        return 1
+    with mount_readonly(image.directory / image.root_image) as volume:
+        for arch in image.architectures:
+            output = args.output or image.directory / arch / "mach.macosx.mkext"
+            started = time.monotonic()
+            print(f"Building {output} ...")
+            report = build_from_volume(volume, arch, output, compress=not args.no_compress,
+                                       include_all=args.all)
+            print(f"  {len(report.included)} kexts included, {len(report.skipped)} skipped "
+                  f"(not needed at boot); {report.uncompressed // 1024} KiB -> "
+                  f"{report.size // 1024} KiB in {time.monotonic() - started:.0f}s")
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace, images_root: Path, state_dir: Path) -> int:
     from .server import ServeOptions, StartupError, serve
     setup_logging(args.verbose, args.log_file)
@@ -167,6 +203,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return cmd_inspect(args.source)
         if args.command == "make-test-image":
             return cmd_make(args, images_root)
+        if args.command == "build-mkext":
+            return cmd_build_mkext(args, images_root)
         if args.command == "serve":
             return cmd_serve(args, images_root, data_root)
     except (OSError, ValueError, argparse.ArgumentTypeError) as exc:

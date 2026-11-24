@@ -30,6 +30,7 @@ from typing import Callable, Dict, Iterator, List, Optional
 
 from ..catalog import INFO_PLIST, Catalog
 from ..net.bsdp import ImageKind
+from .mkext import build_from_volume
 from .partitions import UnsupportedImage, Volume, find_volumes, is_udif, pick_volume
 
 ROOT_IMAGE = "root.dmg"
@@ -205,8 +206,8 @@ def make_test_image(source: Path, images_root: Path, *, dir_name: Optional[str] 
         if kernel is None:
             warnings.append("no /mach_kernel on the volume")
         if mkext is None:
-            warnings.append("no /System/Library/Extensions.mkext; the client may fail to find "
-                            "its network driver (Phase 2 builds the mkext itself)")
+            warnings.append("no Extensions.mkext on the volume; built one from "
+                            "/System/Library/Extensions")
         for arch, candidates in BOOTERS.items():
             booter = _first_existing(mount, candidates)
             if booter is None:
@@ -219,6 +220,10 @@ def make_test_image(source: Path, images_root: Path, *, dir_name: Optional[str] 
                 shutil.copyfile(kernel, arch_dir / "mach.macosx")
             if mkext:
                 shutil.copyfile(mkext, arch_dir / "mach.macosx.mkext")
+            else:
+                progress(f"Building mach.macosx.mkext for {arch} (this takes a minute)...")
+                built = build_from_volume(mount, arch, arch_dir / "mach.macosx.mkext")
+                progress(f"  {len(built.included)} kexts, {built.size // 1024} KiB")
             if arch == "i386" and (mount / BOOT_PLIST).is_file():
                 shutil.copyfile(mount / BOOT_PLIST, arch_dir / "com.apple.Boot.plist")
     if not architectures:
