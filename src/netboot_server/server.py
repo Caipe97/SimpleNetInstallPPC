@@ -12,6 +12,9 @@ from typing import Dict, List, Optional
 
 from .catalog import Catalog
 from .events import EventBus
+from .net import rpc
+from .net.bootparamd import (BOOTPARAM_PROG, BOOTPARAM_VERS, BootparamServer,
+                             forwarding_works)
 from .net.dhcp_server import DhcpBsdpServer, DhcpConfig, root_path_for
 from .net.http_server import ImageHTTPServer, start_http_server
 from .net.leases import LeasePool
@@ -45,6 +48,8 @@ class ServeOptions:
     client_port: int = 68
     tftp_port: int = 69
     state_dir: Optional[Path] = None
+    bootparamd: bool = True        # for Mac OS X 10.0 (RootDirectory images)
+    bootparam_port: int = 0        # 0 = any free port, registered with rpcbind
 
 
 class StartupError(Exception):
@@ -118,6 +123,12 @@ async def serve(options: ServeOptions, events: EventBus,
     tftp_transport, _ = await loop.create_datagram_endpoint(
         lambda: TftpServer(tftp_config, events), sock=tftp_sock)
 
+    bootparam_transport = None
+    bootparam_registered = False
+    if options.bootparamd:
+        bootparam_transport, bootparam_registered = await _start_bootparamd(
+            options, server_ip, dhcp, catalog, events)
+
     http: Optional[ImageHTTPServer] = None
     if options.http_port:
         try:
@@ -126,6 +137,8 @@ async def serve(options: ServeOptions, events: EventBus,
         except OSError as exc:
             dhcp_transport.close()
             tftp_transport.close()
+            if bootparam_transport is not None:
+                bootparam_transport.close()
             raise _bind_error(exc, options.http_port, "HTTP") from exc
 
     events.emit("server", "started",
@@ -151,10 +164,65 @@ async def serve(options: ServeOptions, events: EventBus,
     finally:
         dhcp_transport.close()
         tftp_transport.close()
+        if bootparam_transport is not None:
+            bootparam_transport.close()
+            if bootparam_registered:
+                await loop.run_in_executor(None, rpc.pmap_unset, BOOTPARAM_PROG, BOOTPARAM_VERS)
         if http is not None:
             http.shutdown()
             http.server_close()
         events.emit("server", "stopped", "all services stopped")
+
+
+def make_bootparam_lookup(dhcp: DhcpBsdpServer, catalog: Catalog):
+    """Map a 10.0 client's IP to (MAC, image with a RootDirectory)."""
+    def lookup(ip: IPv4):
+        for record in dhcp.clients.values():
+            if record.ip != str(ip):
+                continue
+            image = catalog.by_index(record.selected_image) if record.selected_image else None
+            if image is None or not image.root_directory:
+                image = catalog.default_for(record.arch or "ppc", record.model)
+            if image is not None and image.root_directory:
+                return record.mac, image
+            return None
+        return None
+    return lookup
+
+
+async def _start_bootparamd(options: ServeOptions, server_ip: IPv4, dhcp: DhcpBsdpServer,
+                            catalog: Catalog, events: EventBus):
+    loop = asyncio.get_running_loop()
+    try:
+        # Not bound to the interface: the host's rpcbind forwards the
+        # kernel's broadcast WHOAMI to us over loopback.
+        sock = make_udp_socket("0.0.0.0", options.bootparam_port)
+    except OSError as exc:
+        events.emit("bootparam", "bind-failed", f"bootparamd not started: {exc}", level=40)
+        return None, False
+    server = BootparamServer(server_ip, make_bootparam_lookup(dhcp, catalog), events,
+                             router=options.router)
+    transport, _ = await loop.create_datagram_endpoint(lambda: server, sock=sock)
+    port = sock.getsockname()[1]
+    registered = await loop.run_in_executor(None, rpc.pmap_set, BOOTPARAM_PROG,
+                                            BOOTPARAM_VERS, port)
+    if not registered:
+        events.emit("bootparam", "unregistered",
+                    f"bootparamd on UDP {port}, but rpcbind refused or is not running "
+                    "(start NFS first). Mac OS X 10.0 clients need an rp= boot-arg until "
+                    "this works", level=30)
+        return transport, False
+    forwards = await loop.run_in_executor(None, forwarding_works)
+    if forwards:
+        events.emit("bootparam", "ready",
+                    f"bootparamd on UDP {port}, registered with rpcbind; CALLIT forwarding works, "
+                    "so Mac OS X 10.0 clients need no rp= boot-arg")
+    else:
+        events.emit("bootparam", "no-forwarding",
+                    f"bootparamd on UDP {port} is registered, but rpcbind does not forward "
+                    "CALLIT, so 10.0 clients' WHOAMI broadcast won't reach us. Use an rp= "
+                    "boot-arg for now", level=30)
+    return transport, True
 
 
 def _report_catalog(catalog: Catalog, config: DhcpConfig, events: EventBus) -> None:

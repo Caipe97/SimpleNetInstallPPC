@@ -90,6 +90,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--default", action="append", default=[], metavar="ARCH=INDEX",
                        help="default image per architecture, e.g. ppc=3")
     serve.add_argument("--tftp-max-blksize", type=int, default=1468)
+    serve.add_argument("--no-bootparamd", action="store_true",
+                       help="don't run bootparamd (used by Mac OS X 10.0 clients)")
     serve.add_argument("--log-file", type=Path)
     return parser
 
@@ -178,6 +180,7 @@ def cmd_serve(args: argparse.Namespace, images_root: Path, state_dir: Path) -> i
         router=args.router, dns=args.dns, lease_time=args.lease_time,
         http_port=args.http_port, nfs_export=args.nfs_export,
         defaults=_defaults(args.default), tftp_max_blksize=args.tftp_max_blksize,
+        bootparamd=not args.no_bootparamd,
         state_dir=state_dir if state_dir.is_dir() else None)
     try:
         asyncio.run(serve(options, EventBus()))

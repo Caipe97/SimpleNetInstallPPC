@@ -47,6 +47,9 @@ class NetBootImage:
     enabled_models: FrozenSet[str] = field(default_factory=frozenset)
     disabled_models: FrozenSet[str] = field(default_factory=frozenset)
     boot_file: str = "booter"
+    # Mac OS X 10.0 boots from an NFS-exported *directory*, not an image file:
+    # the mounted root volume, served by bootparamd (RootDirectory key).
+    root_directory: Optional[str] = None
 
     @property
     def image_id(self) -> int:
@@ -86,6 +89,8 @@ class NetBootImage:
                 issues.append(f"no mach.macosx for {arch}")
         if self.protocol not in PROTOCOLS:
             issues.append(f"unknown protocol {self.protocol!r}")
+        if self.root_directory and not (Path(self.root_directory) / "mach_kernel").is_file():
+            issues.append(f"RootDirectory {self.root_directory} is not a mounted root volume")
         return issues
 
     def _kernel_present(self, arch: str) -> bool:
@@ -114,6 +119,7 @@ def load_image(directory: Path, images_root: Path) -> NetBootImage:
         enabled_models=frozenset(info.get("EnabledSystemIdentifiers", [])),
         disabled_models=frozenset(info.get("DisabledSystemIdentifiers", [])),
         boot_file=str(info.get("BootFile", "booter")),
+        root_directory=str(info["RootDirectory"]) if info.get("RootDirectory") else None,
     )
 
 
