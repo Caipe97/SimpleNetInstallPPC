@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netboot-server"
+version = "0.1.0"
+description = "NetBoot / NetInstall server for Mac OS X 10.0-10.5 (and later Mac OS 9), hosted on Linux or macOS"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+# The network core deliberately uses only the standard library.
+dependencies = []
+
+[project.scripts]
+netboot-server = "netboot_server.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

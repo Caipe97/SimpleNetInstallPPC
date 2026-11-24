@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+build/
+dist/
+# Local image store and captures
+/data/
+*.pcap
+*.dmg
+*.cdr
+*.iso
