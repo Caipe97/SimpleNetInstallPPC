@@ -16,6 +16,10 @@ the test procedure.
   filters, and the NetBoot 1.0 firmware fallback.
 - **TFTP server.** Read-only and path-jailed, with blksize/tsize/timeout options.
 - **HTTP server** for root images, with byte ranges, keep-alive and `sendfile`.
+- **Mac OS X 10.0 / 10.1:** BOOTP, bootparamd and folder roots are set up
+  automatically: auto-mount, a managed `/etc/exports` block on macOS, and a
+  built-in read-only NFS v2 server on Linux. The image maker builds an mkext
+  when the media lacks one.
 - **Image maker.** `make-test-image` turns a `.dmg`/`.img`/`.iso`/`.cdr` of
   an installed system or an install disc into a bootable image folder. It
   handles APM, GPT, MBR, bare volumes and HFS wrappers.

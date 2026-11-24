@@ -84,20 +84,29 @@ class BootparamServer(asyncio.DatagramProtocol):
         if call.vers != BOOTPARAM_VERS:
             return rpc.accepted_reply(call.xid, rpc.pack_u32(BOOTPARAM_VERS, BOOTPARAM_VERS),
                                       status=rpc.PROG_MISMATCH)
+        if call.proc not in (PROC_NULL, PROC_WHOAMI, PROC_GETFILE):
+            return rpc.accepted_reply(call.xid, status=rpc.PROC_UNAVAIL)
         try:
-            if call.proc == PROC_NULL:
-                return rpc.accepted_reply(call.xid)
-            if call.proc == PROC_WHOAMI:
-                results = self._whoami(unpack_inaddr(call.args))
-            elif call.proc == PROC_GETFILE:
-                results = self._getfile(call.args.string(MAX_HOSTNAME), call.args.string(64))
-            else:
-                return rpc.accepted_reply(call.xid, status=rpc.PROC_UNAVAIL)
+            results = self.dispatch(call.proc, call.args)
         except rpc.XdrError:
             return rpc.accepted_reply(call.xid, status=rpc.GARBAGE_ARGS)
         # Like Sun's bootparamd, stay silent for clients we don't serve, so
         # another server can answer.
         return None if results is None else rpc.accepted_reply(call.xid, results)
+
+    def dispatch(self, proc: int, args: rpc.Unpacker) -> Optional[bytes]:
+        """Results for one bootparam call, or None to stay silent.
+
+        Also used for CALLIT requests that reach us without the host's
+        rpcbind (our own portmapper, or the Linux broadcast listener).
+        """
+        if proc == PROC_NULL:
+            return b""
+        if proc == PROC_WHOAMI:
+            return self._whoami(unpack_inaddr(args))
+        if proc == PROC_GETFILE:
+            return self._getfile(args.string(MAX_HOSTNAME), args.string(64))
+        return None
 
     def _whoami(self, client_ip: IPv4) -> Optional[bytes]:
         found = self.lookup(client_ip)

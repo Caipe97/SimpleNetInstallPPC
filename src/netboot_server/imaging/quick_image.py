@@ -30,6 +30,7 @@ from typing import Callable, Dict, Iterator, List, Optional
 
 from ..catalog import INFO_PLIST, Catalog
 from ..net.bsdp import ImageKind
+from ..roots import default_root_directory, is_folder_style
 from .mkext import build_from_volume
 from .partitions import UnsupportedImage, Volume, find_volumes, is_udif, pick_volume
 
@@ -233,6 +234,14 @@ def make_test_image(source: Path, images_root: Path, *, dir_name: Optional[str] 
     build = str(version_info.get("ProductBuildVersion", ""))
     product = str(version_info.get("ProductName", "Mac OS X"))
     name = name or f"{product} {version} {'Install' if is_install else 'NetBoot'}"
+    root_directory = None
+    if is_folder_style(version):
+        # 10.0/10.1 kernels mount an NFS directory, not root.dmg; the server
+        # mounts the volume there and exports it (see roots.py).
+        protocol = "NFS"
+        root_directory = str(default_root_directory(images_root, target.name))
+        warnings.append(f"Mac OS X {version} boots from an NFS folder: the server will mount "
+                        f"root.dmg at {root_directory} and export it")
     info = {
         "Architectures": architectures,
         "BootFile": "booter",
@@ -247,6 +256,7 @@ def make_test_image(source: Path, images_root: Path, *, dir_name: Optional[str] 
         "SupportsDiskless": False,
         "Type": protocol.upper(),
         "osVersion": version,
+        **({"RootDirectory": root_directory} if root_directory else {}),
         "NetBootServer": {
             "Source": str(source),
             "SourceVolume": volume.name,

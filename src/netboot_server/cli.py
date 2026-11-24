@@ -92,6 +92,13 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--tftp-max-blksize", type=int, default=1468)
     serve.add_argument("--no-bootparamd", action="store_true",
                        help="don't run bootparamd (used by Mac OS X 10.0 clients)")
+    serve.add_argument("--nfs", dest="nfs_mode", choices=["auto", "system", "builtin"],
+                       default="auto",
+                       help="NFS for 10.0/10.1 folder roots: macOS nfsd (system), our own "
+                            "read-only NFS v2 server (builtin), or auto (system on macOS, "
+                            "builtin on Linux)")
+    serve.add_argument("--no-manage-roots", action="store_true",
+                       help="don't mount/export 10.0/10.1 RootDirectory folders automatically")
     serve.add_argument("--log-file", type=Path)
     return parser
 
@@ -181,6 +188,7 @@ def cmd_serve(args: argparse.Namespace, images_root: Path, state_dir: Path) -> i
         http_port=args.http_port, nfs_export=args.nfs_export,
         defaults=_defaults(args.default), tftp_max_blksize=args.tftp_max_blksize,
         bootparamd=not args.no_bootparamd,
+        nfs_mode=args.nfs_mode, manage_roots=not args.no_manage_roots,
         state_dir=state_dir if state_dir.is_dir() else None)
     try:
         asyncio.run(serve(options, EventBus()))
