@@ -177,15 +177,22 @@ async def serve(options: ServeOptions, events: EventBus,
 def make_bootparam_lookup(dhcp: DhcpBsdpServer, catalog: Catalog):
     """Map a 10.0 client's IP to (MAC, image with a RootDirectory)."""
     def lookup(ip: IPv4):
-        for record in dhcp.clients.values():
-            if record.ip != str(ip):
-                continue
-            image = catalog.by_index(record.selected_image) if record.selected_image else None
-            if image is None or not image.root_directory:
-                image = catalog.default_for(record.arch or "ppc", record.model)
-            if image is not None and image.root_directory:
-                return record.mac, image
+        record = next((r for r in dhcp.clients.values() if r.ip == str(ip)), None)
+        mac = record.mac if record else None
+        if mac is None and dhcp.config.pool is not None:
+            # Not seen since the server started (e.g. restarted mid-boot):
+            # the saved lease table still knows who holds this address.
+            mac = dhcp.config.pool.mac_for(ip)
+        if mac is None:
             return None
+        image = None
+        if record is not None and record.selected_image:
+            image = catalog.by_index(record.selected_image)
+        if image is None or not image.root_directory:
+            image = catalog.default_for((record.arch if record else None) or "ppc",
+                                        record.model if record else None)
+        if image is not None and image.root_directory:
+            return mac, image
         return None
     return lookup
 

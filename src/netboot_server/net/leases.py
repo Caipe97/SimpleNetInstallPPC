@@ -52,6 +52,14 @@ class LeasePool:
             return lease
         return None
 
+    def mac_for(self, ip: IPv4) -> Optional[str]:
+        """MAC of the client currently holding ``ip`` (bound, unexpired lease)."""
+        now = self._clock()
+        for mac, lease in self._leases.items():
+            if lease.ip == ip and lease.bound and lease.expires > now:
+                return mac
+        return None
+
     def _available(self, ip: IPv4, mac: str) -> bool:
         now = self._clock()
         if ip in self.excluded or self._quarantine.get(ip, 0) > now:

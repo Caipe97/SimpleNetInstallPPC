@@ -141,3 +141,46 @@ class XdrTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LookupTests(unittest.TestCase):
+    """The tray-loading iMac case: BOOTP only (no vendor class), or a server restart mid-boot."""
+
+    def setUp(self):
+        from netboot_server.net.dhcp_server import DhcpBsdpServer, DhcpConfig
+        from netboot_server.net.leases import LeasePool
+        from netboot_server.server import make_bootparam_lookup
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        mounted = root / "mnt"
+        mounted.mkdir()
+        (mounted / "mach_kernel").write_bytes(b"k")
+        make_image(root / "images", 2, "Cheetah", ("ppc",), protocol="NFS",
+                   RootDirectory=str(mounted))
+        catalog = Catalog(root / "images")
+        catalog.reload()
+        catalog.default_index["ppc"] = 2
+        self.pool = LeasePool(IP("192.168.40.100"), IP("192.168.40.150"), excluded=[SERVER])
+        config = DhcpConfig(server_ip=SERVER, subnet=ipaddress.IPv4Network("192.168.40.0/24"),
+                            mode="full", pool=self.pool)
+        self.dhcp = DhcpBsdpServer(config, catalog, RecordingBus())
+        self.lookup = make_bootparam_lookup(self.dhcp, catalog)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_plain_bootp_client_is_tracked(self):
+        from test_bootp import kernel_bootp_request
+        from netboot_server.net.dhcp_packet import DhcpPacket
+        [(reply, _)] = self.dhcp.handle(DhcpPacket.decode(kernel_bootp_request()))
+        mac, image = self.lookup(reply.yiaddr)
+        self.assertEqual(mac, "00:0a:95:aa:bb:cc")
+        self.assertEqual(image.index, 2)
+
+    def test_lease_table_covers_a_server_restart(self):
+        self.pool.offer("00:05:02:00:00:a1", IP("192.168.40.100"))
+        self.pool.confirm("00:05:02:00:00:a1", IP("192.168.40.100"))
+        self.assertEqual(self.dhcp.clients, {})          # fresh server, nothing seen
+        mac, image = self.lookup(IP("192.168.40.100"))
+        self.assertEqual((mac, image.index), ("00:05:02:00:00:a1", 2))
+        self.assertIsNone(self.lookup(IP("192.168.40.140")))

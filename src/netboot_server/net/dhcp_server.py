@@ -342,9 +342,13 @@ class DhcpBsdpServer(asyncio.DatagramProtocol):
         reply.options[Opt.SUBNET_MASK] = self.config.subnet.netmask.packed
         if self.config.router:
             reply.options[Opt.ROUTER] = self.config.router.packed
-        record = self.clients.get(mac)
-        if record is not None:
-            record.ip = str(ip)
+        # BOOTP requests carry no vendor class, so this may be the first we see of
+        # this Mac (e.g. after a server restart). Track it so bootparamd can
+        # match the kernel's WHOAMI to it by IP.
+        record = self.clients.setdefault(mac, ClientRecord(mac))
+        record.ip = str(ip)
+        record.last_seen = time.time()
+        record.last_message = "BOOTP"
         # Some firmware (the tray-loading iMac G3's) does BSDP LIST/SELECT, then
         # boots from a plain BOOTP reply's file field. So also send the booter
         # of the image this Mac selected, or the default image. The 10.0
