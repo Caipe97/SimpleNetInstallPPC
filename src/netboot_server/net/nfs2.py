@@ -124,17 +124,24 @@ class Nfs2Server(asyncio.DatagramProtocol):
         return found
 
     # -- dispatch -------------------------------------------------------------------------
+    def _version_mismatch(self, program: str, asked: int, offered: int, source: str) -> None:
+        self.events.emit("nfs", "version-mismatch",
+                         f"{program} v{asked} requested, only v{offered} is offered",
+                         client=source, level=30)
+
     def handle(self, data: bytes, source: str) -> Optional[bytes]:
         call = rpc.parse_call(data)
         if call is None:
             return None
         if call.prog == MOUNT_PROG:
             if call.vers != MOUNT_VERS:
+                self._version_mismatch("MOUNT", call.vers, MOUNT_VERS, source)
                 return rpc.accepted_reply(call.xid, rpc.pack_u32(MOUNT_VERS, MOUNT_VERS),
                                           status=rpc.PROG_MISMATCH)
             handler = self._mount
         elif call.prog == NFS_PROG:
             if call.vers != NFS_VERS:
+                self._version_mismatch("NFS", call.vers, NFS_VERS, source)
                 return rpc.accepted_reply(call.xid, rpc.pack_u32(NFS_VERS, NFS_VERS),
                                           status=rpc.PROG_MISMATCH)
             handler = self._nfs

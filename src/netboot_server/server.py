@@ -237,10 +237,17 @@ async def serve(options: ServeOptions, events: EventBus,
     tftp_transport, _ = await loop.create_datagram_endpoint(
         lambda: TftpServer(tftp_config, events), sock=tftp_sock)
 
+    def builtin_exports(statuses) -> List[str]:
+        # 10.0/10.1 root folders, plus the folder holding 10.2+ root.dmg files
+        exports = roots.builtin_exports(statuses) if roots is not None else []
+        if options.nfs_export:
+            exports.append(options.nfs_export)
+        return exports
+
     services = RpcServices(events)
     await services.start(options, iface.name, address, dhcp, catalog, nfs_mode)
-    if services.nfs is not None and roots is not None:
-        services.nfs.set_exports(roots.builtin_exports(root_statuses))
+    if services.nfs is not None:
+        services.nfs.set_exports(builtin_exports(root_statuses))
 
     http: Optional[ImageHTTPServer] = None
     if options.http_port:
@@ -270,7 +277,7 @@ async def serve(options: ServeOptions, events: EventBus,
         if roots is not None:
             statuses = await loop.run_in_executor(None, roots.sync, catalog)
             if services.nfs is not None:
-                services.nfs.set_exports(roots.builtin_exports(statuses))
+                services.nfs.set_exports(builtin_exports(statuses))
         _report_catalog(catalog, config, events)
 
     try:

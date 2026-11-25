@@ -52,6 +52,9 @@ def handle_callit(call: rpc.Call, programs: Dict[int, LocalProgram]) -> Optional
     return None if results is None else callit_reply(call.xid, port, results)
 
 
+PROGRAM_NAMES = {100003: "NFS", 100005: "MOUNT", 100026: "bootparams"}
+
+
 class Portmapper(asyncio.DatagramProtocol):
     """Minimal portmapper v2 (NULL, SET, UNSET, GETPORT, DUMP, CALLIT) on UDP."""
 
@@ -97,7 +100,16 @@ class Portmapper(asyncio.DatagramProtocol):
                 return rpc.accepted_reply(call.xid, rpc.pack_u32(1))
             if call.proc == rpc.PMAPPROC_GETPORT:
                 prog, vers, prot, _port = u.u32(), u.u32(), u.u32(), u.u32()
-                return rpc.accepted_reply(call.xid, rpc.pack_u32(self.mappings.get((prog, vers, prot), 0)))
+                port = self.mappings.get((prog, vers, prot), 0)
+                if not port:
+                    offered = sorted({v for (p, v, _x) in self.mappings if p == prog})
+                    self.events.emit(
+                        "rpc", "getport-miss",
+                        f"GETPORT {PROGRAM_NAMES.get(prog, prog)} v{vers}/"
+                        f"{'tcp' if prot == 6 else 'udp'}: not offered"
+                        + (f" (we offer v{', v'.join(map(str, offered))}/udp)" if offered else ""),
+                        client=source)
+                return rpc.accepted_reply(call.xid, rpc.pack_u32(port))
             if call.proc == 4:   # DUMP
                 out = b""
                 for (prog, vers, prot), port in sorted(self.mappings.items()):

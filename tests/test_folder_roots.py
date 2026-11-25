@@ -18,7 +18,7 @@ from netboot_server.net.portmap import Portmapper, answer_broadcast, parse_ipv4_
 from netboot_server.roots import (BEGIN, END, RootManager, default_root_directory,
                                   is_folder_style, render_exports)
 
-from helpers import make_image
+from helpers import RecordingBus, make_image
 
 NET = ipaddress.IPv4Network("192.168.40.0/24")
 CLIENT = "192.168.40.102"
@@ -188,6 +188,27 @@ class Nfs2Tests(unittest.TestCase):
         u.offset += 32
         return status, handle, u.u32()   # u32 = file type
 
+    def test_disk_image_folder_is_a_second_export(self):
+        # 10.2+: the --nfs-export folder holding <image>/root.dmg, beside the
+        # 10.0/10.1 root folders.
+        images = Path(self.tmp.name) / "images"
+        (images / "jaguar-inst").mkdir(parents=True)
+        (images / "jaguar-inst" / "root.dmg").write_bytes(b"disk")
+        self.server.set_exports([str(self.export), str(images)])
+        status, top = self.mount(str(images))
+        self.assertEqual(status, 0)
+        status, folder, ftype = self.lookup(top, "jaguar-inst")
+        self.assertEqual((status, ftype), (0, nfs2.NFDIR))
+        status, _fh, ftype = self.lookup(folder, "root.dmg")
+        self.assertEqual((status, ftype), (0, nfs2.NFREG))
+
+    def test_version_mismatch_is_logged(self):
+        events = RecordingBus()
+        server = nfs2.Nfs2Server(events, allowed=NET)
+        reply = server.handle(call(nfs2.MOUNT_PROG, 3, nfs2.M_MNT, rpc.pack_string("/x")), CLIENT)
+        self.assertIsNotNone(reply)
+        self.assertIn(("nfs", "version-mismatch"), events.kinds())
+
     def test_mount_lookup_read_like_the_10_0_kernel(self):
         status, root = self.mount()
         self.assertEqual(status, 0)
@@ -273,6 +294,16 @@ class PortmapperTests(unittest.TestCase):
         self.assertEqual(u.u32(), 4000)              # kernel: bootparam port first
         self.assertEqual(rpc.Unpacker(u.opaque()).string(), "nb-123456")
         self.assertEqual(self.calls, [PROC_WHOAMI])
+
+    def test_getport_for_a_version_we_lack_is_logged(self):
+        events = RecordingBus()
+        self.pm.events = events
+        u = results(self.pm.handle(call(rpc.PMAP_PROG, 2, rpc.PMAPPROC_GETPORT,
+                                        rpc.pack_u32(nfs2.NFS_PROG, 3, 17, 0)), CLIENT))
+        self.assertEqual(u.u32(), 0)
+        [event] = events.recent(10)
+        self.assertEqual(event.kind, "getport-miss")
+        self.assertIn("NFS v3/udp: not offered (we offer v2/udp)", event.message)
 
     def test_set_only_from_loopback(self):
         args = rpc.pack_u32(123, 1, 17, 999)
