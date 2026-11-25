@@ -56,7 +56,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     make = sub.add_parser("make-test-image",
                           help="build an unmodified test image from a disk image (Phase 0)")
-    make.add_argument("source", type=Path, help=".dmg/.img/.iso/.cdr of a system or install disc")
+    make.add_argument("source", type=Path, nargs="+",
+                      help=".dmg/.img/.iso/.cdr of an install CD/DVD; give every disc "
+                           "of a multi-CD set (any order) to merge them into one image")
     make.add_argument("--name", help="name shown in Startup Disk / the Option-key picker")
     make.add_argument("--index", type=int, help="image index 1-4095 (default: next free)")
     make.add_argument("--dir", dest="dir_name", help="folder name (keep it short)")
@@ -79,6 +81,9 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--server-ip", type=_ip, help="address to use if the interface has several")
     serve.add_argument("--dhcp-mode", choices=["bsdp-only", "full"], default="bsdp-only",
                        help="bsdp-only: an existing DHCP server hands out addresses (default)")
+    serve.add_argument("--dhcp-clients", choices=["netboot", "all"], default="netboot",
+                       help="full mode: answer only NetBoot Macs (default, safe next to "
+                            "another DHCP server) or every DHCP client (isolated LAN)")
     serve.add_argument("--pool-start", type=_ip)
     serve.add_argument("--pool-end", type=_ip)
     serve.add_argument("--router", type=_ip)
@@ -97,6 +102,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="NFS for 10.0/10.1 folder roots: macOS nfsd (system), our own "
                             "read-only NFS v2 server (builtin), or auto (system on macOS, "
                             "builtin on Linux)")
+    serve.add_argument("--allow-sleep", action="store_true",
+                       help="let the host sleep while serving (by default it's kept awake)")
     serve.add_argument("--no-manage-roots", action="store_true",
                        help="don't mount/export 10.0/10.1 RootDirectory folders automatically")
     serve.add_argument("--log-file", type=Path)
@@ -138,14 +145,16 @@ def cmd_inspect(source: Path) -> int:
 
 def cmd_make(args: argparse.Namespace, images_root: Path) -> int:
     from .imaging.quick_image import make_test_image
-    report = make_test_image(args.source, images_root, dir_name=args.dir_name, name=args.name,
-                             index=args.index, protocol=args.protocol,
-                             volume_index=args.volume, force=args.force)
+    report = make_test_image(args.source[0], images_root, dir_name=args.dir_name,
+                             name=args.name, index=args.index, protocol=args.protocol,
+                             volume_index=args.volume, force=args.force,
+                             extra_sources=args.source[1:])
     print(f"Created {report.directory}")
     print(f"  name:    {report.name} (index {report.index})")
-    print(f"  system:  {report.version} {report.build}  "
-          f"{'installer' if report.is_install else 'installed system'}")
+    print(f"  system:  {report.version} {report.build}  installer")
     print(f"  arch:    {', '.join(report.architectures) or 'none'}")
+    if report.merged:
+        print(f"  merged:  {len(report.merged)} package(s) from the other discs")
     for warning in report.warnings:
         print(f"  warning: {warning}")
     return 0
@@ -183,12 +192,14 @@ def cmd_serve(args: argparse.Namespace, images_root: Path, state_dir: Path) -> i
     setup_logging(args.verbose, args.log_file)
     options = ServeOptions(
         interface=args.interface, images_root=images_root, server_ip=args.server_ip,
-        dhcp_mode=args.dhcp_mode, pool_start=args.pool_start, pool_end=args.pool_end,
+        dhcp_mode=args.dhcp_mode, dhcp_clients=args.dhcp_clients,
+        pool_start=args.pool_start, pool_end=args.pool_end,
         router=args.router, dns=args.dns, lease_time=args.lease_time,
         http_port=args.http_port, nfs_export=args.nfs_export,
         defaults=_defaults(args.default), tftp_max_blksize=args.tftp_max_blksize,
         bootparamd=not args.no_bootparamd,
         nfs_mode=args.nfs_mode, manage_roots=not args.no_manage_roots,
+        keep_awake=not args.allow_sleep,
         state_dir=state_dir if state_dir.is_dir() else None)
     try:
         asyncio.run(serve(options, EventBus()))

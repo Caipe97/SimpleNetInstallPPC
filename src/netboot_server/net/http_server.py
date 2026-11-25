@@ -83,6 +83,11 @@ class ImageHTTPServer(ThreadingHTTPServer):
 class ImageRequestHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "netboot-server"
+    # TCP_NODELAY. Each response is two writes (headers, then sendfile), and
+    # with Nagle on the last short segment of every reply waits for an ACK that
+    # old Mac OS X clients delay. That stalls each of the thousands of small
+    # range reads a NetBoot client makes.
+    disable_nagle_algorithm = True
     server: ImageHTTPServer
 
     def do_HEAD(self) -> None:

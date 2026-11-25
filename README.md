@@ -1,8 +1,8 @@
 # netboot-server
 
-NetBoot and NetInstall for Mac OS X 10.0 – 10.5 (PowerPC and Intel), and
-later Mac OS 9, hosted on Linux (Debian, Fedora) or macOS 14+. No more USB
-sticks or optical drives to install or boot old Macs.
+NetInstall for Mac OS X 10.0 – 10.5 (PowerPC and Intel), hosted on Linux
+(Debian, Fedora) or macOS 14+. No more USB sticks or optical drives to
+install old Macs.
 
 **Status: Phase 0.** The network core and a test-image maker are working. They
 are used to check, on real hardware, what each OS X release needs. See
@@ -21,8 +21,12 @@ the test procedure.
   built-in read-only NFS v2 server on Linux. The image maker builds an mkext
   when the media lacks one.
 - **Image maker.** `make-test-image` turns a `.dmg`/`.img`/`.iso`/`.cdr` of
-  an installed system or an install disc into a bootable image folder. It
-  handles APM, GPT, MBR, bare volumes and HFS wrappers.
+  an install CD/DVD into a NetInstall image folder. It handles APM, GPT,
+  MBR, bare volumes and HFS wrappers. Given all the discs of a multi-CD set,
+  it merges them into one image, so the installer never asks for another
+  disc.
+- **Startup Disk:** each Mac's last selected image is remembered and offered
+  as its selected image, as Apple's server does.
 
 ## Quick start
 
@@ -52,7 +56,7 @@ src/netboot_server/
   events.py           logging + event bus (feeds the web UI later)
   netif.py            interface discovery and binding (Linux/macOS)
   net/                dhcp_packet, bsdp, dhcp_server, leases, tftp, http_server
-  imaging/            partitions (APM/GPT/MBR/HFS wrapper), quick_image
+  imaging/            partitions (APM/GPT/MBR/HFS wrapper), quick_image, mkext, merge (multi-CD)
 tests/                unit tests (stdlib unittest)
 docs/PHASE0.md        hardware test procedure
 ```

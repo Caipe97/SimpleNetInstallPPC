@@ -5,6 +5,7 @@ import os
 import socket
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -41,8 +42,10 @@ class VersionTests(unittest.TestCase):
             self.assertFalse(is_folder_style(version), version)
 
     def test_default_root_has_no_spaces(self):
-        path = default_root_directory(Path("/Library/Application Support/NetBootServer/images"),
-                                      "puma-inst")
+        # Each host's default data root (see cli.py): macOS's has a space.
+        images = ("/Library/Application Support/NetBootServer/images" if sys.platform == "darwin"
+                  else "/var/lib/netboot-server/images")
+        path = default_root_directory(Path(images), "puma-inst")
         self.assertNotIn(" ", str(path))
         self.assertTrue(str(path).endswith("puma-inst"))
 

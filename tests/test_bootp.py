@@ -40,8 +40,8 @@ class BootpTests(unittest.TestCase):
 
     def server(self, mode):
         pool = LeasePool(IP("10.0.0.100"), IP("10.0.0.110"), excluded=[SERVER_IP]) if mode == "full" else None
-        config = DhcpConfig(server_ip=SERVER_IP, subnet=SUBNET, mode=mode, pool=pool,
-                            router=IP("10.0.0.254"))
+        config = DhcpConfig(server_ip=SERVER_IP, subnet=SUBNET, mode=mode, clients="all",
+                            pool=pool, router=IP("10.0.0.254"))
         return DhcpBsdpServer(config, self.catalog, self.events)
 
     def test_full_mode_answers_plain_bootp(self):
@@ -86,7 +86,8 @@ class FirmwareBootpTests(unittest.TestCase):
         self.catalog = Catalog(root)
         self.catalog.reload()
         pool = LeasePool(IP("10.0.0.100"), IP("10.0.0.110"), excluded=[SERVER_IP])
-        config = DhcpConfig(server_ip=SERVER_IP, subnet=SUBNET, mode="full", pool=pool,
+        config = DhcpConfig(server_ip=SERVER_IP, subnet=SUBNET, mode="full", clients="all",
+                            pool=pool,
                             http_base="http://10.0.0.1", nfs_export="/srv/images")
         self.server = DhcpBsdpServer(config, self.catalog, RecordingBus())
 

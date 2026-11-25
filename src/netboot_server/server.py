@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 import errno
 import ipaddress
+import os
+import shutil
 import signal
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from .catalog import Catalog
 from .events import EventBus
@@ -39,6 +42,7 @@ class ServeOptions:
     images_root: Path
     server_ip: Optional[IPv4] = None
     dhcp_mode: str = "bsdp-only"
+    dhcp_clients: str = "netboot"
     pool_start: Optional[IPv4] = None
     pool_end: Optional[IPv4] = None
     router: Optional[IPv4] = None
@@ -56,16 +60,114 @@ class ServeOptions:
     bootparam_port: int = 0        # 0 = any free port, registered with the portmapper
     nfs_mode: str = "auto"         # folder roots: "system" (macOS nfsd), "builtin", "auto"
     manage_roots: bool = True      # mount + export RootDirectory images automatically
+    keep_awake: bool = True        # stop the host from sleeping while serving
 
 
 class StartupError(Exception):
     pass
 
 
+def keep_awake_command(pid: int, platform: str = sys.platform,
+                       which=shutil.which) -> Optional[List[str]]:
+    """A command that keeps the host awake until process ``pid`` exits, if there is one.
+
+    A host that sleeps mid-install strands the Mac: KDE's and GNOME's idle
+    suspend respect a logind block inhibitor, macOS idle sleep respects
+    caffeinate. Both helpers watch ``pid``, so they go away with us even if
+    we're killed.
+    """
+    if platform == "darwin":
+        return ["caffeinate", "-i", "-s", "-w", str(pid)]
+    if which("systemd-inhibit") and which("tail"):
+        return ["systemd-inhibit", "--what=sleep:idle", "--who=netboot-server",
+                "--why=Serving NetBoot clients", "--mode=block",
+                "tail", f"--pid={pid}", "-f", "/dev/null"]
+    return None
+
+
+def start_keep_awake(events: EventBus) -> Optional[subprocess.Popen]:
+    command = keep_awake_command(os.getpid())
+    if command is None:
+        events.emit("server", "sleep", "can't stop this host from sleeping (no "
+                    "systemd-inhibit); turn off automatic suspend while serving", level=30)
+        return None
+    try:
+        proc = subprocess.Popen(command, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as exc:
+        events.emit("server", "sleep", f"can't stop this host from sleeping: {exc}", level=30)
+        return None
+    events.emit("server", "awake", f"keeping this host awake while serving ({command[0]})")
+    return proc
+
+
+CLI_COMMANDS = {"interfaces", "images", "inspect", "make-test-image", "build-mkext", "serve"}
+
+
+def _ancestor_pids() -> Set[int]:
+    """This process and its parents (sudo, the shell), so we never report ourselves."""
+    pids = {os.getpid()}
+    pid = os.getppid()
+    while pid > 1 and pid not in pids:
+        pids.add(pid)
+        try:
+            out = subprocess.run(["ps", "-o", "ppid=", "-p", str(pid)], capture_output=True,
+                                 text=True, timeout=2).stdout.strip()
+            pid = int(out)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            break
+    return pids
+
+
+def parse_server_processes(ps_output: str, exclude: Set[int]) -> List[Tuple[int, str]]:
+    """(pid, command) of running ``netboot-server serve`` processes in ``ps`` output.
+
+    Expects lines of ``pid command...``. The ``sudo`` wrapper is skipped, so the
+    pid reported is the server itself.
+    """
+    found = []
+    for line in ps_output.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) != 2 or not parts[0].isdigit():
+            continue
+        pid, command = int(parts[0]), parts[1].strip()
+        if pid in exclude:
+            continue
+        words = command.split()
+        if not words or os.path.basename(words[0]) == "sudo":
+            continue
+        for i, word in enumerate(words):
+            if os.path.basename(word) in ("netboot_server", "netboot-server"):
+                command_word = next((w for w in words[i + 1:] if w in CLI_COMMANDS), None)
+                if command_word == "serve":
+                    found.append((pid, command))
+                break
+    return found
+
+
+def other_servers() -> List[Tuple[int, str]]:
+    """Other netboot-server instances running on this host (best effort)."""
+    try:
+        out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True,
+                             timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return parse_server_processes(out, _ancestor_pids())
+
+
+def port_in_use_message(what: str, port: int, servers: List[Tuple[int, str]]) -> str:
+    if servers:
+        pid = servers[0][0]
+        return (f"{what}: port {port} is already in use by another netboot-server "
+                f"(pid {pid}). To pick up new or changed images, reload it instead: "
+                f"sudo kill -HUP {pid}. To restart with other options, stop it first: "
+                f"sudo kill {pid}.")
+    return f"{what}: port {port} is already in use. {PORT_HINTS.get(port, '')}".strip()
+
+
 def _bind_error(exc: OSError, port: int, what: str) -> StartupError:
     if exc.errno == errno.EADDRINUSE:
-        hint = PORT_HINTS.get(port, "")
-        return StartupError(f"{what}: port {port} is already in use. {hint}".strip())
+        return StartupError(port_in_use_message(what, port, other_servers()))
     if exc.errno in (errno.EACCES, errno.EPERM):
         return StartupError(f"{what}: permission denied for port {port}; run as root (sudo)")
     return StartupError(f"{what}: cannot bind port {port}: {exc}")
@@ -109,7 +211,8 @@ async def serve(options: ServeOptions, events: EventBus,
     if options.http_port:
         http_base = f"http://{server_ip}" + ("" if options.http_port == 80 else f":{options.http_port}")
     config = DhcpConfig(server_ip=server_ip, subnet=address.network, mode=options.dhcp_mode,
-                        pool=pool, router=options.router, dns=options.dns,
+                        clients=options.dhcp_clients, pool=pool,
+                        router=options.router, dns=options.dns,
                         nfs_export=options.nfs_export, http_base=http_base,
                         client_port=options.client_port, server_port=options.dhcp_port)
 
@@ -119,7 +222,8 @@ async def serve(options: ServeOptions, events: EventBus,
         dhcp_sock = make_udp_socket("0.0.0.0", options.dhcp_port, iface.name, broadcast=True)
     except OSError as exc:
         raise _bind_error(exc, options.dhcp_port, "DHCP/BSDP") from exc
-    dhcp = DhcpBsdpServer(config, catalog, events)
+    bindings_file = options.state_dir / "bsdp-bindings.json" if options.state_dir else None
+    dhcp = DhcpBsdpServer(config, catalog, events, bindings_file)
     dhcp_transport, _ = await loop.create_datagram_endpoint(lambda: dhcp, sock=dhcp_sock)
 
     tftp_config = TftpConfig(root=options.images_root, bind_ip=str(server_ip),
@@ -150,9 +254,14 @@ async def serve(options: ServeOptions, events: EventBus,
             raise _bind_error(exc, options.http_port, "HTTP") from exc
 
     events.emit("server", "started",
-                f"serving on {iface.name} ({address}), DHCP mode {options.dhcp_mode}, "
+                f"serving on {iface.name} ({address}), DHCP mode {options.dhcp_mode}"
+                + (" (NetBoot Macs only)" if options.dhcp_mode == "full"
+                   and options.dhcp_clients == "netboot" else "") + ", "
                 f"HTTP {'port ' + str(options.http_port) if options.http_port else 'off'}, "
-                f"NFS export {options.nfs_export or 'not configured'}")
+                "NFS disk images (10.2+) "
+                + (f"from {options.nfs_export}" if options.nfs_export
+                   else "off (no --nfs-export)"))
+    awake = start_keep_awake(events) if options.keep_awake else None
 
     stop = stop or asyncio.Event()
 
@@ -181,6 +290,9 @@ async def serve(options: ServeOptions, events: EventBus,
         if http is not None:
             http.shutdown()
             http.server_close()
+        if awake is not None:
+            awake.terminate()
+            awake.wait()
         events.emit("server", "stopped", "all services stopped")
 
 

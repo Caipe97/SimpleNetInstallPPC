@@ -10,14 +10,22 @@ Both protocols share UDP port 67, so one server handles both:
 
 :meth:`DhcpBsdpServer.handle` does no I/O, so it can be tested without
 sockets.
+
+Like Apple's bsdpd, the server remembers each Mac's last SELECT (its
+*binding*) and names that image as "selected" in later LIST replies. This is
+how the Startup Disk pane works: it sends a SELECT from the running OS, then
+restarts, and the firmware boots the image the LIST reply says is selected.
 """
 
 from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
+import logging
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote
 
@@ -27,6 +35,8 @@ from . import bsdp
 from .bsdp import BsdpMessageType, BsdpTag, ClientClass
 from .dhcp_packet import BOOTREPLY, BOOTREQUEST, DhcpPacket, MessageType, Opt, ip_list
 from .leases import LeasePool
+
+log = logging.getLogger("netboot.bsdp")
 
 IPv4 = ipaddress.IPv4Address
 Destination = Tuple[str, int]
@@ -40,6 +50,11 @@ class DhcpConfig:
     server_ip: IPv4
     subnet: ipaddress.IPv4Network
     mode: str = "bsdp-only"                 # "bsdp-only" or "full"
+    # Full mode only: "netboot" answers just Macs that identify as BSDP clients
+    # (now, or earlier in this run, or saved in bsdp-bindings.json), so the
+    # server can share a LAN with the household's DHCP server. "all" answers
+    # every DHCP client, for an isolated test LAN.
+    clients: str = "netboot"
     pool: Optional[LeasePool] = None
     router: Optional[IPv4] = None
     dns: List[IPv4] = field(default_factory=list)
@@ -69,6 +84,12 @@ class ClientRecord:
 
 
 def root_path_for(image: NetBootImage, config: DhcpConfig) -> Optional[str]:
+    if image.root_directory:
+        # 10.0/10.1: the kernel ignores option 17 and gets its root folder from
+        # bootparamd, which the server always runs, so no --nfs-export is needed.
+        # Same nfs:server:mount:path shape as the paths these releases booted with.
+        folder = Path(image.root_directory)
+        return f"nfs:{config.server_ip}:{folder.parent}:{folder.name}"
     rel = f"{image.rel_dir}/{image.root_image}"
     if image.protocol == "NFS":
         if not config.nfs_export:
@@ -80,12 +101,51 @@ def root_path_for(image: NetBootImage, config: DhcpConfig) -> Optional[str]:
 
 
 class DhcpBsdpServer(asyncio.DatagramProtocol):
-    def __init__(self, config: DhcpConfig, catalog: Catalog, events: EventBus) -> None:
+    def __init__(self, config: DhcpConfig, catalog: Catalog, events: EventBus,
+                 bindings_file: Optional[Path] = None) -> None:
         self.config = config
         self.catalog = catalog
         self.events = events
         self.clients: Dict[str, ClientRecord] = {}
         self.transport: Optional[asyncio.DatagramTransport] = None
+        self.bindings_file = bindings_file
+        self._load_bindings()
+
+    # -- bindings (each Mac's last selected image), kept across restarts ----------
+    def _load_bindings(self) -> None:
+        if not self.bindings_file or not self.bindings_file.exists():
+            return
+        try:
+            data = json.loads(self.bindings_file.read_text())
+            for mac, index in data.items():
+                self.clients.setdefault(mac, ClientRecord(mac)).selected_image = int(index)
+        except (ValueError, TypeError, AttributeError, OSError) as exc:
+            log.warning("ignoring unreadable bindings file %s: %s", self.bindings_file, exc)
+
+    def _save_bindings(self) -> None:
+        if not self.bindings_file:
+            return
+        data = {mac: r.selected_image for mac, r in sorted(self.clients.items())
+                if r.selected_image is not None}
+        try:
+            tmp = self.bindings_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, indent=1))
+            tmp.replace(self.bindings_file)
+        except OSError as exc:
+            log.warning("could not save %s: %s", self.bindings_file, exc)
+
+    def _set_binding(self, mac: str, index: Optional[int]) -> None:
+        record = self.clients.setdefault(mac, ClientRecord(mac))
+        if record.selected_image != index:
+            record.selected_image = index
+            self._save_bindings()
+
+    def bound_image(self, mac: str, images: List[NetBootImage]) -> Optional[NetBootImage]:
+        """The image this Mac last selected, if it is still offered to it."""
+        record = self.clients.get(mac)
+        if record is None or record.selected_image is None:
+            return None
+        return next((i for i in images if i.index == record.selected_image), None)
 
     # -- asyncio plumbing ------------------------------------------------------
     def connection_made(self, transport) -> None:  # type: ignore[override]
@@ -128,6 +188,13 @@ class DhcpBsdpServer(asyncio.DatagramProtocol):
                 and BsdpTag.MESSAGE_TYPE in bsdp_options):
             return self._handle_bsdp(packet, client_class, bsdp_options)
 
+        if self.config.mode == "full" and not self._may_serve(packet, client_class):
+            self.events.emit("dhcp", "not-netboot",
+                             f"{message_type.name if message_type else 'BOOTP'} from a "
+                             "non-NetBoot client ignored (--dhcp-clients netboot)",
+                             client=packet.mac, level=10)
+            return []
+
         if message_type is None:
             # Plain BOOTP (no option 53). The Mac OS X 10.0 kernel sends this
             # from nfs_boot to configure its interface before mounting an NFS root.
@@ -147,6 +214,14 @@ class DhcpBsdpServer(asyncio.DatagramProtocol):
                                  client=packet.mac, level=10)
             return []
         return self._handle_dhcp(packet, client_class, bsdp_options)
+
+    def _may_serve(self, packet: DhcpPacket, client_class: Optional[ClientClass]) -> bool:
+        """Whether full mode should answer this client's DHCP/BOOTP."""
+        if self.config.clients == "all" or client_class is not None:
+            return True
+        # Known Macs: the 10.0/10.1 kernel's plain BOOTP and the booted OS's own
+        # DHCP carry no BSDP vendor class, but the firmware sent one before.
+        return packet.mac in self.clients
 
     def _remember(self, packet: DhcpPacket, client_class: ClientClass,
                   message_type: Optional[MessageType]) -> None:
@@ -196,6 +271,9 @@ class DhcpBsdpServer(asyncio.DatagramProtocol):
             (BsdpTag.SERVER_PRIORITY, bsdp.u16(self.config.server_priority)),
             (BsdpTag.DEFAULT_BOOT_IMAGE, bsdp.u32(default.image_id)),
         ]
+        bound = self.bound_image(packet.mac, images)
+        if bound is not None:
+            fixed.append((BsdpTag.SELECTED_BOOT_IMAGE, bsdp.u32(bound.image_id)))
         fixed_bytes = bsdp.encode_options(fixed)
         # Keep option 43 within one 255-byte option: unclear whether old
         # firmware reassembles split options (RFC 3396).
@@ -211,9 +289,11 @@ class DhcpBsdpServer(asyncio.DatagramProtocol):
             [(BsdpTag.BOOT_IMAGE_LIST, listing)])
         self.events.emit("bsdp", "list",
                          f"LIST from {client.model or '?'} ({client.arch or '?'}): "
-                         f"offered {included} image(s), default {default.name!r}",
+                         f"offered {included} image(s), default {default.name!r}"
+                         + (f", selected {bound.name!r}" if bound is not None else ""),
                          client=packet.mac, images=[i.index for i in images[:included]],
-                         default=default.index)
+                         default=default.index,
+                         selected=bound.index if bound is not None else None)
         return [(reply, destination)]
 
     def _bsdp_select(self, packet: DhcpPacket, client: ClientClass,
@@ -224,6 +304,7 @@ class DhcpBsdpServer(asyncio.DatagramProtocol):
             self.events.emit("bsdp", "select-other",
                              f"SELECT addressed to another server ({IPv4(server_id)})",
                              client=packet.mac, level=10)
+            self._set_binding(packet.mac, None)   # it chose another server (as bsdpd does)
             return []
         selected = options.get(BsdpTag.SELECTED_BOOT_IMAGE, b"")
         image = self.catalog.by_id(int.from_bytes(selected, "big")) if len(selected) == 4 else None
@@ -251,7 +332,7 @@ class DhcpBsdpServer(asyncio.DatagramProtocol):
             (BsdpTag.SELECTED_BOOT_IMAGE, bsdp.u32(image.image_id)),
         ])
         reply.options[Opt.ROOT_PATH] = root_path.encode()
-        self.clients[packet.mac].selected_image = image.index
+        self._set_binding(packet.mac, image.index)
         self.events.emit("bsdp", "select",
                          f"SELECT {image.name!r}: booter {booter}, root {root_path}",
                          client=packet.mac, image=image.index, booter=booter,
@@ -305,6 +386,13 @@ class DhcpBsdpServer(asyncio.DatagramProtocol):
                     self.clients[mac].ip = str(ip)
                 self.events.emit("dhcp", "ack", f"ACK {ip}", client=mac, ip=str(ip))
                 return [(reply, self._destination(packet, MessageType.ACK))]
+            if self.config.clients != "all" and not pool.in_pool(ip):
+                # Not ours to refuse: on a shared LAN this address came from the
+                # network's own DHCP server, which will answer.
+                self.events.emit("dhcp", "request-other",
+                                 f"REQUEST for {ip} (not from our pool) left to its server",
+                                 client=mac, level=10)
+                return []
             reply = packet.make_reply(MessageType.NAK, self.config.server_ip)
             self.events.emit("dhcp", "nak", f"NAK for requested {ip}", client=mac, level=30)
             return [(reply, self._destination(packet, MessageType.NAK))]

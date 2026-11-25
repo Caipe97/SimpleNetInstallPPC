@@ -1,13 +1,14 @@
 import asyncio
 import http.client
 import os
+import socket
 import struct
 import tempfile
 import unittest
 from pathlib import Path
 
 from netboot_server.events import EventBus
-from netboot_server.net.http_server import parse_range, start_http_server
+from netboot_server.net.http_server import ImageRequestHandler, parse_range, start_http_server
 from netboot_server.net.tftp import (OP_ACK, OP_DATA, OP_ERROR, OP_OACK, OP_RRQ, TftpConfig,
                                      TftpServer, resolve_path)
 
@@ -169,6 +170,30 @@ class HttpTests(unittest.TestCase):
             finally:
                 server.shutdown()
                 server.server_close()
+
+    def test_responses_are_not_delayed_by_nagle(self):
+        seen = []
+
+        class Recording(ImageRequestHandler):
+            def setup(self):
+                super().setup()
+                seen.append(self.connection.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "root.dmg").write_bytes(b"x" * 10)
+            server = start_http_server("127.0.0.1", 0, root, EventBus())
+            server.RequestHandlerClass = Recording
+            try:
+                conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+                conn.request("GET", "/root.dmg")
+                conn.getresponse().read()
+                conn.close()
+            finally:
+                server.shutdown()
+                server.server_close()
+        self.assertEqual(len(seen), 1)
+        self.assertTrue(seen[0])
 
 
 if __name__ == "__main__":

@@ -162,7 +162,7 @@ class LookupTests(unittest.TestCase):
         catalog.default_index["ppc"] = 2
         self.pool = LeasePool(IP("192.168.40.100"), IP("192.168.40.150"), excluded=[SERVER])
         config = DhcpConfig(server_ip=SERVER, subnet=ipaddress.IPv4Network("192.168.40.0/24"),
-                            mode="full", pool=self.pool)
+                            mode="full", clients="all", pool=self.pool)
         self.dhcp = DhcpBsdpServer(config, catalog, RecordingBus())
         self.lookup = make_bootparam_lookup(self.dhcp, catalog)
 

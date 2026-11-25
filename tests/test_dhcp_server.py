@@ -94,6 +94,18 @@ class BsdpServerTests(unittest.TestCase):
         _, _, options = self.bsdp_reply(packet)
         self.assertEqual(options[BsdpTag.MESSAGE_TYPE], bytes((BsdpMessageType.FAILED,)))
 
+    def test_folder_root_needs_no_nfs_export(self):
+        # 10.0/10.1 images boot from a folder found through bootparamd.
+        self.config.nfs_export = None
+        image = self.catalog.by_index(2)
+        image.root_directory = "/var/lib/netboot-server/roots/img2"
+        packet = bsdp_inform(BsdpMessageType.SELECT, extra=[
+            (BsdpTag.SELECTED_BOOT_IMAGE, bsdp.u32(image.image_id))])
+        reply, _, options = self.bsdp_reply(packet)
+        self.assertEqual(options[BsdpTag.MESSAGE_TYPE], bytes((BsdpMessageType.SELECT,)))
+        self.assertEqual(reply.options[Opt.ROOT_PATH],
+                         b"nfs:10.0.0.1:/var/lib/netboot-server/roots:img2")
+
     def test_select_for_other_server_is_ignored(self):
         packet = bsdp_inform(BsdpMessageType.SELECT, extra=[
             (BsdpTag.SERVER_IDENTIFIER, IP("10.0.0.2").packed),
@@ -135,7 +147,8 @@ class FullDhcpTests(unittest.TestCase):
         catalog = Catalog(self.root)
         catalog.reload()
         pool = LeasePool(IP("10.0.0.100"), IP("10.0.0.101"), 600, excluded=[SERVER_IP])
-        self.config = DhcpConfig(server_ip=SERVER_IP, subnet=SUBNET, mode="full", pool=pool,
+        self.config = DhcpConfig(server_ip=SERVER_IP, subnet=SUBNET, mode="full",
+                                 clients="all", pool=pool,
                                  router=IP("10.0.0.254"), dns=[IP("10.0.0.53")],
                                  http_base="http://10.0.0.1")
         self.server = DhcpBsdpServer(self.config, catalog, RecordingBus())
@@ -189,6 +202,54 @@ class FullDhcpTests(unittest.TestCase):
     def test_modern_firmware_offer_has_no_boot_file(self):
         [(offer, _)] = self.request(MessageType.DISCOVER, vendor=b"AAPLBSDPC/ppc/PowerMac3,4")
         self.assertEqual(offer.file, b"")
+
+
+class SharedLanTests(unittest.TestCase):
+    """Full mode next to a household DHCP server: answer NetBoot Macs only."""
+    APPLE = b"AAPLBSDPC/ppc/PowerMac2,2"
+    PHONE = bytes.fromhex("96a0290000f6")
+    tearDown = FullDhcpTests.tearDown
+    request = FullDhcpTests.request
+
+    def setUp(self):
+        FullDhcpTests.setUp(self)
+        self.config.clients = "netboot"
+
+    def test_other_devices_get_no_offer(self):
+        self.assertEqual(self.request(MessageType.DISCOVER, mac=self.PHONE), [])
+
+    def test_other_devices_rejoining_are_not_naked(self):
+        # INIT-REBOOT: a phone asks to keep the address the home router gave it.
+        self.assertEqual(self.request(MessageType.REQUEST, {
+            Opt.REQUESTED_IP: IP("10.0.0.14").packed}, mac=self.PHONE), [])
+        self.assertEqual(self.request(MessageType.INFORM, mac=self.PHONE), [])
+
+    def test_netboot_mac_is_served(self):
+        [(offer, _)] = self.request(MessageType.DISCOVER, vendor=self.APPLE)
+        self.assertEqual(offer.message_type, MessageType.OFFER)
+
+    def test_known_mac_is_served_without_vendor_class(self):
+        # The 10.0 kernel's plain BOOTP and the booted OS's DHCP carry no
+        # BSDP vendor class; the firmware's DISCOVER did.
+        from test_bootp import kernel_bootp_request
+        self.request(MessageType.DISCOVER, vendor=self.APPLE)
+        [(reply, _)] = self.server.handle(DhcpPacket.decode(kernel_bootp_request()))
+        self.assertEqual(reply.yiaddr, IP("10.0.0.100"))
+
+    def test_unknown_plain_bootp_is_ignored(self):
+        from test_bootp import kernel_bootp_request
+        self.assertEqual(self.server.handle(DhcpPacket.decode(kernel_bootp_request())), [])
+
+    def test_mac_asking_for_routers_address_is_left_alone(self):
+        self.request(MessageType.DISCOVER, vendor=self.APPLE)
+        self.assertEqual(self.request(MessageType.REQUEST, {
+            Opt.REQUESTED_IP: IP("10.0.0.14").packed}), [])
+
+    def test_mac_asking_for_a_pool_address_it_lacks_is_naked(self):
+        self.request(MessageType.DISCOVER, vendor=self.APPLE, mac=bytes.fromhex("000000000001"))
+        [(nak, _)] = self.request(MessageType.REQUEST, {
+            Opt.REQUESTED_IP: IP("10.0.0.100").packed}, vendor=self.APPLE)
+        self.assertEqual(nak.message_type, MessageType.NAK)
 
 
 class LeasePoolTests(unittest.TestCase):
