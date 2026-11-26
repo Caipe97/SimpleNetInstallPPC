@@ -73,6 +73,7 @@ class ServeOptions:
     ignore_other_dhcp: bool = False  # start even if the probe found a conflict
     ui_port: int = 0               # web UI port; 0 = no web UI
     ui_bind: str = "127.0.0.1"     # web UI address (localhost by default, PLAN §5)
+    ui_password: bool = False      # ask for the password on localhost too (shared machines)
     # Which network settings (netsettings.FIELD_NAMES) came from the command line;
     # they win over the saved ones. None: all of them (callers other than the CLI).
     given: Optional[Set[str]] = None
@@ -585,8 +586,7 @@ def start_web(options: ServeOptions, events: EventBus, catalog: Catalog, store: 
     if not options.ui_port:
         return None
     if options.state_dir is None:
-        events.emit("web", "off", "web UI not started: it needs the data folder for its "
-                    "password", level=30)
+        events.emit("web", "off", "web UI not started: it needs the data folder", level=30)
         return None
     from .web.app import PASSWORD_FILE, WebContext, is_loopback, load_or_create_password, \
         start_web_server
@@ -643,17 +643,26 @@ def start_web(options: ServeOptions, events: EventBus, catalog: Catalog, store: 
         or root_path_for(image, net.config) is not None
         else [f"uses {image.protocol} but that is not configured"],
         network=network, apply_network=apply_network)
+    # No login on localhost: only this machine (and SSH tunnels into it) can
+    # connect. Anywhere else the password protects a server that runs as root.
+    login = options.ui_password or not is_loopback(options.ui_bind)
     try:
-        password, created = load_or_create_password(options.state_dir)
+        password, created = (load_or_create_password(options.state_dir) if login
+                             else (None, False))
         web = start_web_server(options.ui_bind, options.ui_port, ctx, password)
     except OSError as exc:
         events.emit("web", "bind-failed", f"web UI not started on {options.ui_bind}:"
                     f"{options.ui_port}: {exc.strerror or exc}", level=40)
         return None
-    password_file = options.state_dir / PASSWORD_FILE
-    events.emit("web", "started", f"web UI on http://{options.ui_bind}:{options.ui_port}/ "
-                f"(user admin, password in {password_file}"
-                + (", just created" if created else "") + ")")
+    url = f"http://{options.ui_bind}:{options.ui_port}/"
+    if login:
+        password_file = options.state_dir / PASSWORD_FILE
+        events.emit("web", "started", f"web UI on {url} (user admin, password in "
+                    f"{password_file}" + (", just created" if created else "") + ")")
+    else:
+        events.emit("web", "started", f"web UI on {url} (only this machine can connect; "
+                    f"from another computer: ssh -N -L {options.ui_port}:127.0.0.1:"
+                    f"{options.ui_port} <this host>)")
     if not is_loopback(options.ui_bind):
         events.emit("web", "exposed", f"the web UI listens on {options.ui_bind}: anyone who "
                     "can reach it there and has the password controls this server", level=30)

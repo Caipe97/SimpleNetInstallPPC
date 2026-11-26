@@ -643,3 +643,4 @@ window.addEventListener("hashchange", show);
 setInterval(() => { if (refresh[current] && !document.hidden) refresh[current]().catch(() => {}); }, 5000);
 show();
 connect();
+api("GET", "/api/session").then((s) => { $("#logout").hidden = !s.login; }).catch(() => {});

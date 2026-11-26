@@ -48,8 +48,8 @@ With a `simplenetinstallppc-data` folder next to it, the images and settings
 live there too, so one USB stick carries everything.
 `./simplenetinstallppc.pyz check` lists anything the host is missing. Open the
 web UI at http://127.0.0.1:8080/ on the server (from another computer:
-`ssh -N -L 8080:127.0.0.1:8080 <server>`); the password is in `ui-password`
-in the data folder. The UI opens on a Get started guide: choose the network,
+`ssh -N -L 8080:127.0.0.1:8080 <server>`). It has no password, since only the
+server itself can connect. The UI opens on a Get started guide: choose the network,
 build an image from your install discs, pick the default, then hold **N** on
 the Mac. The [user guide](docs/GUIDE.md) covers each step, booting the Macs
 and troubleshooting.

@@ -215,6 +215,60 @@ class AuthTests(WebTestCase):
             self.assertEqual(load_or_create_password(Path(folder)), (first, False))
 
 
+class NoLoginTests(WebTestCase):
+    """On localhost the UI has no password (serve's default)."""
+
+    def setUp(self):
+        super().setUp()
+        self.server.stop()
+        self.server = start_web_server("127.0.0.1", 0, self.ctx, None)
+        self.port = self.server.server_address[1]
+
+    def raw(self, method, path, host):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        conn.putrequest(method, path, skip_host=True)
+        if host is not None:
+            conn.putheader("Host", host)
+        conn.endheaders()
+        response = conn.getresponse()
+        response.read()
+        conn.close()
+        return response
+
+    def test_no_password_needed(self):
+        self.assertEqual(self.request("GET", "/api/status", auth=None)[0], 200)
+        self.assertEqual(self.request("GET", "/", auth=None)[0], 200)
+        self.assertEqual(self.request("GET", "/api/session", auth=None)[1], {"login": False})
+        # Changes still need the page's own header (another site can't add it).
+        self.assertEqual(self.request("POST", "/api/reload", auth=None, csrf=False)[0], 403)
+        self.assertEqual(self.request("POST", "/api/reload", auth=None)[0], 200)
+        # Nothing to log in to or out of.
+        self.assertEqual(self.raw("GET", "/login.html", "127.0.0.1").getheader("Location"), "/")
+
+    def test_only_loopback_names(self):
+        # A site that points its own name at 127.0.0.1 (DNS rebinding) is refused.
+        for host in ("127.0.0.1:8080", "localhost", "LOCALHOST:18090", "[::1]:8080", "::1", None):
+            self.assertEqual(self.raw("GET", "/api/status", host).status, 200, host)
+        for host in ("evil.example", "evil.example:8080", "127.0.0.1.evil.example",
+                     "192.168.50.104:8080", ""):
+            self.assertEqual(self.raw("GET", "/api/status", host).status, 403, host)
+
+    def test_not_without_a_password_elsewhere(self):
+        with self.assertRaises(ValueError):
+            start_web_server("0.0.0.0", 0, self.ctx, None)
+
+    def test_login_mode_reports_it(self):
+        other = start_web_server("127.0.0.1", 0, self.ctx, PASSWORD)
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", other.server_address[1], timeout=5)
+            conn.request("GET", "/api/session")
+            response = conn.getresponse()
+            self.assertEqual(json.loads(response.read()), {"login": True})
+            conn.close()
+        finally:
+            other.stop()
+
+
 class PageTests(WebTestCase):
     def test_static_files(self):
         status, body = self.request("GET", "/")

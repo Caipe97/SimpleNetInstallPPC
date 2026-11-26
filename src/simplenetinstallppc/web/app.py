@@ -23,13 +23,23 @@ API below, so anything the UI does can be scripted with curl:
     GET  /api/events?since=N           buffered events after sequence number N
     GET  /api/events/stream?since=N    the same, then live, as Server-Sent Events
 
-Every request needs the password in ``<data root>/ui-password``: the page
-logs in with a form (``POST /login``) that sets a session cookie, and
-scripts can send HTTP Basic auth instead (user ``admin``). Requests that
-change something also need an ``X-Netboot-UI: 1`` header. A page on another
-site can't add that header without a CORS preflight, which this server never
-approves, and the cookie is SameSite=Strict, so another site can't make the
-browser change anything (CSRF).
+Who may use it:
+
+* **On localhost** (the default), there's no password: only this machine can
+  connect, and other computers come in through an SSH tunnel, which already
+  logged them in. Requests must name the server as ``127.0.0.1``,
+  ``localhost`` or ``[::1]`` in their Host header, so a web page whose own
+  name was pointed at 127.0.0.1 (DNS rebinding) is refused.
+* **On any other address**, or with ``--ui-password``, every request needs the
+  password in ``<data root>/ui-password``: the page logs in with a form
+  (``POST /login``) that sets a session cookie, and scripts can send HTTP
+  Basic auth instead (user ``admin``).
+
+Either way, requests that change something need an ``X-Netboot-UI: 1``
+header. A page on another site can't add that header without a CORS
+preflight, which this server never approves, and the cookie is
+SameSite=Strict, so another site can't make the browser change anything
+(CSRF).
 """
 
 from __future__ import annotations
@@ -363,10 +373,11 @@ class WebServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address: Tuple[str, int], ctx: WebContext, password: str) -> None:
+    def __init__(self, address: Tuple[str, int], ctx: WebContext,
+                 password: Optional[str]) -> None:
         self.ctx = ctx
         self.api = Api(ctx)
-        self.password = password
+        self.password = password          # None: no login (localhost only)
         self.stopping = threading.Event()
         # Changes with every start. The event stream sends it first: event
         # numbers restart at 1 with a new server, so a page that sees a new
@@ -386,7 +397,13 @@ class WebServer(ThreadingHTTPServer):
         return COOKIE_PREFIX + hmac.new(self.password.encode(), b"cookie name",
                                         hashlib.sha256).hexdigest()[:10]
 
+    @property
+    def login_required(self) -> bool:
+        return self.password is not None
+
     def password_ok(self, password: str) -> bool:
+        if self.password is None:
+            return False
         return hmac.compare_digest(password.encode(), self.password.encode())
 
     def _hash(self, token: str) -> str:
@@ -446,6 +463,8 @@ class WebHandler(BaseHTTPRequestHandler):
         return ""
 
     def _authorized(self) -> bool:
+        if not self.server.login_required:
+            return True
         token = self._cookie()
         if token and self.server.session_ok(token):
             return True
@@ -593,6 +612,16 @@ class WebHandler(BaseHTTPRequestHandler):
 
     def _dispatch(self, method: str) -> None:
         path = urlsplit(self.path).path
+        if not self.server.login_required:
+            if not host_is_local(self.headers.get("Host")):
+                self._error(403, "this server only answers as 127.0.0.1 or localhost")
+                return
+            if path in ("/login", "/login.html", "/logout"):
+                self._redirect("/")              # nothing to log in to
+                return
+        if method == "GET" and path == "/api/session":
+            self._json(200, {"login": self.server.login_required})
+            return
         if method == "POST" and path == "/login":
             self._login()
             return
@@ -712,6 +741,21 @@ class WebHandler(BaseHTTPRequestHandler):
         pass   # the services log what matters; UI polling would flood the log
 
 
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def host_is_local(header: Optional[str]) -> bool:
+    """Is a Host header this machine by a loopback name? (Missing: a script.)"""
+    if header is None:
+        return True
+    host = header.strip().lower()
+    if host.startswith("["):                       # [::1]:8080
+        host = host[1:host.find("]")] if "]" in host else host
+    elif host.count(":") == 1:                     # 127.0.0.1:8080
+        host = host.split(":")[0]
+    return host.rstrip(".") in LOCAL_HOSTS
+
+
 def is_loopback(host: str) -> bool:
     try:
         return ipaddress.ip_address(host).is_loopback
@@ -719,7 +763,11 @@ def is_loopback(host: str) -> bool:
         return host == "localhost"
 
 
-def start_web_server(bind: str, port: int, ctx: WebContext, password: str) -> WebServer:
+def start_web_server(bind: str, port: int, ctx: WebContext,
+                     password: Optional[str]) -> WebServer:
+    """Start the UI. password None: no login, which is only allowed on loopback."""
+    if password is None and not is_loopback(bind):
+        raise ValueError(f"the web UI needs a password on {bind}")
     server = WebServer((bind, port), ctx, password)
     threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.1},
                      name="web-ui", daemon=True).start()

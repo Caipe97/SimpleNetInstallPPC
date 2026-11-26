@@ -82,7 +82,7 @@ if [ "$action" = uninstall ]; then
     fi
     rm -f "$BIN"
     remove_old_layout
-    say "removed. Images, settings and the web UI password are still in $DATA"
+    say "removed. Images and settings are still in $DATA"
     exit 0
 fi
 
@@ -139,5 +139,4 @@ fi
 cat <<EOF
 Web UI:   http://127.0.0.1:8080/ while it runs (from another computer:
           ssh -N -L 8080:127.0.0.1:8080 <this host>, then open that address)
-Password: sudo cat "$DATA/ui-password"
 EOF

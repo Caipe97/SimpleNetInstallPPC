@@ -49,7 +49,7 @@ named `simplenetinstallppc-data` next to the file:
 ```
 USB stick/
   simplenetinstallppc.pyz
-  simplenetinstallppc-data/      images, settings, uploads, web UI password
+  simplenetinstallppc-data/      images, settings, uploads
 ```
 
 When that folder exists, the server uses it instead of the system folder.
@@ -118,16 +118,20 @@ address in your browser:
 ssh -N -L 8080:127.0.0.1:8080 <server>
 ```
 
-The password is in the data folder. On Linux:
+There's no password: only the server itself can connect to that address, and
+the SSH tunnel already asked you to log in. Two cases bring back a login
+page, with the password in the `ui-password` file in the data folder:
+
+- **`--ui-bind <address>`** makes the UI reachable on the network at that
+  address. Anyone who can reach it there and has the password controls the
+  server, so prefer the tunnel.
+- **`--ui-password`** asks for it on localhost too, for a machine other
+  people log in to.
+
+To read the password on Linux:
 
 ```bash
 sudo cat /var/lib/netboot-server/ui-password
-```
-
-On macOS:
-
-```bash
-sudo cat "/Library/Application Support/NetBootServer/ui-password"
 ```
 
 Each `?` next to an option explains it. Until the server is set up, the UI
@@ -303,7 +307,7 @@ marks.
 | Images | `images/` in the data folder, one folder per image | same |
 | Uploads | `sources/` | same |
 | Settings, Macs, leases | `db.sqlite` | same |
-| Web UI password | `ui-password` | same |
+| Web UI password (only with `--ui-bind` or `--ui-password`) | `ui-password` | same |
 | Program | wherever you put `simplenetinstallppc.pyz`; `/usr/local/bin/simplenetinstallppc` if installed | same |
 
 To put the data somewhere else, give `--data <folder>` or set

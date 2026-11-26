@@ -94,7 +94,7 @@ class PyzTests(unittest.TestCase):
                                   env=environment, stdout=subprocess.DEVNULL,
                                   stderr=subprocess.DEVNULL)
         try:
-            url = f"http://127.0.0.1:{port}/login.html"
+            url = f"http://127.0.0.1:{port}/api/session"
             for _ in range(100):
                 try:
                     urllib.request.urlopen(url, timeout=1).read()
@@ -103,9 +103,12 @@ class PyzTests(unittest.TestCase):
                     time.sleep(0.1)
             [copy] = list(temp.glob("simplenetinstallppc-*/simplenetinstallppc.pyz"))
             pyz.unlink()                               # the stick is gone
-            page = urllib.request.urlopen(url, timeout=5).read()
-            self.assertIn(b"Log in", page)
-            self.assertTrue((data / "ui-password").is_file())
+            page = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5).read()
+            self.assertIn(b"<title>SimpleNetInstallPPC", page)
+            # On localhost there's no login, so no password file either.
+            session = urllib.request.urlopen(url, timeout=5).read()
+            self.assertEqual(session, b'{"login": false}')
+            self.assertFalse((data / "ui-password").exists())
             self.assertTrue((data / "images").is_dir())
         finally:
             server.send_signal(signal.SIGTERM)
