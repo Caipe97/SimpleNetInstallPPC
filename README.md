@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/icon.svg" width="160" alt="An all-in-one PowerPC Mac with a network cable"></p>
+
 # SimpleNetInstallPPC
 
 NetInstall for Mac OS X 10.0 – 10.5 (PowerPC and Intel), hosted on Linux
@@ -7,6 +9,22 @@ install old Macs.
 **Status:** PowerPC NetInstall works from Linux and macOS for 10.0 – 10.5,
 with a web UI and a service install. Intel Macs and Mac OS 9 come later. See
 the [user guide](docs/GUIDE.md) to set it up.
+
+## Screenshots
+
+The web UI, shown with sample data (`docs/screenshots/demo.py` makes these).
+It opens on **Get started**, which ticks off each step of the setup:
+
+<p align="center"><img src="docs/screenshots/start.png" width="640" alt="Get started: four setup steps, all done"></p>
+
+| | |
+|---|---|
+| ![Dashboard: a status light per service](docs/screenshots/dashboard.png) | ![Images: enable, rename and pick the default](docs/screenshots/images.png) |
+| **Dashboard:** a light per service, and the settings in use | **Images:** enable them, rename them, pick the default |
+| ![Build: drop the install discs and build](docs/screenshots/build.png) | ![Network: interface and DHCP settings](docs/screenshots/network.png) |
+| **Build:** drop the install discs, then build | **Network:** the interface, and DHCP next to your router |
+| ![Clients: the Macs seen and their chosen image](docs/screenshots/clients.png) | ![Logs: live, filterable](docs/screenshots/logs.png) |
+| **Clients:** each Mac and the image it boots | **Logs:** live, with a filter |
 
 ## What works now
 
@@ -81,6 +99,7 @@ src/simplenetinstallppc/
   net/                dhcp_packet, bsdp, dhcp_server, leases, tftp, http_server
   imaging/            partitions (APM/GPT/MBR/HFS wrapper), quick_image, mkext, merge (multi-CD)
 packaging/            build_pyz.py (the single file), install.sh, systemd unit, launchd plist
+docs/screenshots/     demo.py (the web UI with sample data) and the README screenshots
 tests/                unit tests (stdlib unittest)
 docs/GUIDE.md         user guide
 ```
