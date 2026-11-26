@@ -2,8 +2,8 @@ import ipaddress
 import struct
 import unittest
 
-from netboot_server.net import bsdp
-from netboot_server.net.dhcp_packet import (BOOTREPLY, MAGIC_COOKIE, MIN_PACKET_SIZE,
+from simplenetinstallppc.net import bsdp
+from simplenetinstallppc.net.dhcp_packet import (BOOTREPLY, MAGIC_COOKIE, MIN_PACKET_SIZE,
                                             DhcpPacket, MessageType, Opt)
 
 

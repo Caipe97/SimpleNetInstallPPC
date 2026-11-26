@@ -10,9 +10,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from netboot_server.imaging.merge import (PROXY_KEY, Disc, apply_merge, copy_tree_portable,
+from simplenetinstallppc.imaging.merge import (PROXY_KEY, Disc, apply_merge, copy_tree_portable,
                                           find_proxies, grow_hfsplus, parse_location, plan_merge)
-from netboot_server.imaging.partitions import UnsupportedImage
+from simplenetinstallppc.imaging.partitions import UnsupportedImage
 
 BS = 4096
 

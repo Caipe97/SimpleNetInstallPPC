@@ -1,4 +1,4 @@
-# netboot-server
+# SimpleNetInstallPPC
 
 NetInstall for Mac OS X 10.0 – 10.5 (PowerPC and Intel), hosted on Linux
 (Debian, Fedora) or macOS 14+. No more USB sticks or optical drives to
@@ -31,14 +31,25 @@ the test procedure.
 ## Quick start
 
 ```bash
-sudo PYTHONPATH=src python3 -m netboot_server make-test-image ~/Images/Panther-Disc1.toast --dir panther
+sudo PYTHONPATH=src python3 -m simplenetinstallppc make-test-image ~/Images/Panther-Disc1.toast --dir panther
 ```
 
 ```bash
-sudo PYTHONPATH=src python3 -m netboot_server serve -i en7 --dhcp-mode full --pool-start 10.0.0.100 --pool-end 10.0.0.150
+sudo PYTHONPATH=src python3 -m simplenetinstallppc serve -i en7 --dhcp-mode full --pool-start 10.0.0.100 --pool-end 10.0.0.150
 ```
 
 Hold **N** on the Mac at startup.
+
+`serve` also starts a web UI on http://127.0.0.1:8080/ (`--ui-port`, `--ui-bind`;
+`--ui-port 0` turns it off). The password is in `ui-password` in the data folder
+(`sudo cat /var/lib/netboot-server/ui-password`). From another computer, use an
+SSH tunnel: `ssh -L 8080:127.0.0.1:8080 <server>`, then open http://127.0.0.1:8080/.
+The UI opens on a Get started guide until the server is set up, then shows a status
+light per service, sets the interface and DHCP settings (saved
+for the next start; `serve` without `-i` uses them), lists and edits images, builds
+images from discs picked on the server or dropped into the page, changes the image a
+Mac saved, and shows the live log. It uses the JSON API described in
+`src/simplenetinstallppc/web/app.py`.
 
 ## Tests
 
@@ -49,11 +60,14 @@ PYTHONPATH=src:tests python3 -m unittest discover -s tests
 ## Layout
 
 ```
-src/netboot_server/
+src/simplenetinstallppc/
   cli.py              command-line entry point
   server.py           starts DHCP/BSDP + TFTP + HTTP together
   catalog.py          image folders and NBImageInfo.plist
-  events.py           logging + event bus (feeds the web UI later)
+  events.py           logging + event bus (feeds the web UI)
+  store.py            SQLite state: clients, saved images, leases, settings
+  netsettings.py      interface + DHCP settings (UI, command line, saved)
+  web/                web UI: app.py (HTTP + JSON API), jobs.py (builds), static/ (page)
   netif.py            interface discovery and binding (Linux/macOS)
   net/                dhcp_packet, bsdp, dhcp_server, leases, tftp, http_server
   imaging/            partitions (APM/GPT/MBR/HFS wrapper), quick_image, mkext, merge (multi-CD)

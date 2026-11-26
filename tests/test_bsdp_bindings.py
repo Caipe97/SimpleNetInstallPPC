@@ -5,12 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from netboot_server.catalog import Catalog
-from netboot_server.net import bsdp
-from netboot_server.net.bsdp import BsdpMessageType, BsdpTag
-from netboot_server.net.dhcp_packet import DhcpPacket, Opt
-from netboot_server.net.dhcp_server import DhcpBsdpServer, DhcpConfig
-from netboot_server.store import Store
+from simplenetinstallppc.catalog import Catalog
+from simplenetinstallppc.net import bsdp
+from simplenetinstallppc.net.bsdp import BsdpMessageType, BsdpTag
+from simplenetinstallppc.net.dhcp_packet import DhcpPacket, Opt
+from simplenetinstallppc.net.dhcp_server import DhcpBsdpServer, DhcpConfig
+from simplenetinstallppc.store import Store
 
 from helpers import SERVER_IP, RecordingBus, bsdp_inform, make_image
 

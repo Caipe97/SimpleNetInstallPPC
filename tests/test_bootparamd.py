@@ -6,9 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from netboot_server.catalog import Catalog
-from netboot_server.net import rpc
-from netboot_server.net.bootparamd import (BOOTPARAM_PROG, BOOTPARAM_VERS, PROC_GETFILE,
+from simplenetinstallppc.catalog import Catalog
+from simplenetinstallppc.net import rpc
+from simplenetinstallppc.net.bootparamd import (BOOTPARAM_PROG, BOOTPARAM_VERS, PROC_GETFILE,
                                            PROC_NULL, PROC_WHOAMI, BootparamServer,
                                            client_hostname)
 
@@ -147,9 +147,9 @@ class LookupTests(unittest.TestCase):
     """The tray-loading iMac case: BOOTP only (no vendor class), or a server restart mid-boot."""
 
     def setUp(self):
-        from netboot_server.net.dhcp_server import DhcpBsdpServer, DhcpConfig
-        from netboot_server.net.leases import LeasePool
-        from netboot_server.server import make_bootparam_lookup
+        from simplenetinstallppc.net.dhcp_server import DhcpBsdpServer, DhcpConfig
+        from simplenetinstallppc.net.leases import LeasePool
+        from simplenetinstallppc.server import make_bootparam_lookup
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         mounted = root / "mnt"
@@ -171,7 +171,7 @@ class LookupTests(unittest.TestCase):
 
     def test_plain_bootp_client_is_tracked(self):
         from test_bootp import kernel_bootp_request
-        from netboot_server.net.dhcp_packet import DhcpPacket
+        from simplenetinstallppc.net.dhcp_packet import DhcpPacket
         [(reply, _)] = self.dhcp.handle(DhcpPacket.decode(kernel_bootp_request()))
         mac, image = self.lookup(reply.yiaddr)
         self.assertEqual(mac, "00:0a:95:aa:bb:cc")

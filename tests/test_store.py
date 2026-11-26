@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from netboot_server import cli
-from netboot_server.store import DB_NAME, SCHEMA_VERSION, Store
+from simplenetinstallppc import cli
+from simplenetinstallppc.store import DB_NAME, SCHEMA_VERSION, Store
 
 from helpers import make_image
 
@@ -37,6 +37,21 @@ class StoreTests(unittest.TestCase):
         db.close()
         with self.assertRaises(RuntimeError):
             Store.open(self.data)
+
+    def test_version_1_database_is_upgraded(self):
+        from simplenetinstallppc.store import _SCHEMA
+        db = sqlite3.connect(self.data / DB_NAME)
+        db.executescript(_SCHEMA[0] + "PRAGMA user_version = 1;")
+        db.execute("INSERT INTO clients (mac, selected_image) VALUES (?, 4)", (MAC,))
+        db.commit()
+        db.close()
+        store = Store.open(self.data)
+        self.assertEqual(store.selected_image(MAC), 4)
+        self.assertIsNone(store.setting("network"))
+        store.set_setting("network", {"interface": "en7"})
+        store.set_setting("network", {"interface": "en8"})
+        self.assertEqual(store.setting("network"), {"interface": "en8"})
+        store.close()
 
     def test_update_client_changes_only_the_given_fields(self):
         store = Store()

@@ -3,9 +3,9 @@ import socket
 import threading
 import unittest
 
-from netboot_server.net.dhcp_packet import (BOOTREPLY, FLAG_BROADCAST, DhcpPacket, MessageType,
+from simplenetinstallppc.net.dhcp_packet import (BOOTREPLY, FLAG_BROADCAST, DhcpPacket, MessageType,
                                             Opt)
-from netboot_server.net.dhcp_probe import (DhcpAnswer, ProbeUnavailable, assess,
+from simplenetinstallppc.net.dhcp_probe import (DhcpAnswer, ProbeUnavailable, assess,
                                            build_discover, parse_answer, probe)
 
 from capture import FIXTURES, read_udp

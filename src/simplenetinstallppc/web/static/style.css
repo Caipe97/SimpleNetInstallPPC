@@ -1,0 +1,61 @@
+:root { color-scheme: light dark; --line: #8884; --muted: #888; --warn: #b60; --err: #c22; }
+body { font: 14px/1.4 system-ui, sans-serif; margin: 0; background: Canvas; color: CanvasText; }
+header { display: flex; gap: 1.5em; align-items: center; padding: .6em 1em; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+nav a { margin-right: 1em; }
+nav a.active { font-weight: bold; text-decoration: none; }
+#conn { margin-left: auto; color: var(--muted); }
+main { padding: 0 1em 2em; }
+section { display: none; }
+section.active { display: block; }
+h2 { font-size: 1.1em; margin: 1.4em 0 .5em; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: .3em .6em .3em 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.kv { width: auto; }
+table.kv th { font-weight: normal; color: var(--muted); padding-right: 2em; }
+.note { color: var(--muted); }
+.problem { color: var(--warn); }
+#error { background: #c223; padding: .5em 1em; margin: 0; }
+form label { display: inline-block; margin: .3em 1.2em .3em 0; }
+fieldset { border: 1px solid var(--line); margin-bottom: .5em; }
+fieldset label { display: block; }
+ul.log { list-style: none; padding: 0; margin: 0; font: 12px/1.4 ui-monospace, monospace; }
+ul.log li { white-space: pre-wrap; border-bottom: 1px solid #8882; }
+ul.log time { color: var(--muted); margin-right: .6em; }
+.l30 { color: var(--warn); }
+.l40, .l50 { color: var(--err); }
+.l10 { color: var(--muted); }
+pre { font: 12px/1.4 ui-monospace, monospace; max-height: 30em; overflow: auto; border: 1px solid var(--line); padding: .5em; }
+input[type=number] { width: 6em; }
+#log-filter { width: 20em; max-width: 100%; }
+.drop { border: 2px dashed var(--line); padding: .8em 1em; margin: .5em 0 1em; }
+.drop.over { border-color: Highlight; background: #8881; }
+.browser { border: 1px solid var(--line); padding: 0 1em .5em; }
+ul.files { list-style: none; padding: 0; margin: 0; max-height: 22em; overflow: auto; }
+ul.files li { padding: .15em 0; border-bottom: 1px solid #8882; }
+ul.files a { cursor: pointer; }
+#uploads { list-style: none; padding: 0; margin: .5em 0 0; }
+#uploads progress { width: 12em; vertical-align: middle; margin: 0 .6em; }
+#places a { margin-right: 1em; cursor: pointer; }
+#crumbs a { cursor: pointer; }
+#go-path { width: 18em; max-width: 60%; }
+.chip { display: inline-block; border: 1px solid var(--line); border-radius: 3px; padding: 0 .4em; margin: 0 .4em .2em 0; }
+.chip button { border: 0; background: none; color: inherit; cursor: pointer; padding: 0 0 0 .3em; }
+.lights { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(15em, 1fr)); gap: .5em; }
+.lights li { border: 1px solid var(--line); padding: .4em .6em; }
+.lights .dot { display: inline-block; width: .8em; height: .8em; border-radius: 50%; margin-right: .4em; vertical-align: -1px; }
+.dot.ok { background: #2a2; } .dot.warn { background: #d90; } .dot.error { background: #d33; } .dot.off { background: #888; }
+.lights .note { display: block; font-size: .9em; }
+#net-form fieldset label { display: block; margin: .3em 0; }
+#net-form #full-only label { display: inline-block; margin-right: 1em; }
+.steps { padding-left: 0; list-style: none; max-width: 46em; }
+.steps li { border: 1px solid var(--line); padding: .6em .8em; margin-bottom: .6em; }
+.steps li.next { border-color: Highlight; }
+.steps .num { display: inline-block; width: 1.6em; height: 1.6em; line-height: 1.6em; text-align: center; border-radius: 50%; border: 1px solid var(--line); margin-right: .5em; font-size: .9em; }
+.steps li.done .num { background: #2a2; border-color: #2a2; color: #fff; }
+.steps .state { display: block; margin: .3em 0 .4em 2.2em; color: var(--muted); }
+.steps .go { margin-left: 2.2em; }
+#setup-banner { border: 1px solid Highlight; padding: .4em .8em; margin-top: 1em; }
+button.help { border: 1px solid var(--line); border-radius: 50%; width: 1.4em; height: 1.4em; padding: 0; font-size: .8em; line-height: 1; color: var(--muted); background: none; cursor: pointer; vertical-align: middle; }
+button.help:hover, button.help[aria-expanded=true] { color: CanvasText; border-color: CanvasText; }
+.popover { position: absolute; z-index: 10; max-width: min(22em, calc(100vw - 2em)); padding: .5em .7em; background: Canvas; color: CanvasText; border: 1px solid var(--line); box-shadow: 0 2px 8px #0004; font-weight: normal; font-size: .95em; }
+#places a, #crumbs a, ul.files a { color: LinkText; text-decoration: underline; }

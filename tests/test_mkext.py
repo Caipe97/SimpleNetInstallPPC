@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from netboot_server.imaging import mkext
+from simplenetinstallppc.imaging import mkext
 
 
 def make_kext(folder: Path, name: str, required, binary: bytes = b"\xfe\xed\xfa\xce" + b"x" * 500,

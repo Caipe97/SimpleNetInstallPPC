@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SimpleNetInstallPPC</title>
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header>
+  <strong>SimpleNetInstallPPC</strong>
+  <nav>
+    <a href="#start">Get started</a>
+    <a href="#dashboard">Dashboard</a>
+    <a href="#network">Network</a>
+    <a href="#images">Images</a>
+    <a href="#build">Build</a>
+    <a href="#clients">Clients</a>
+    <a href="#logs">Logs</a>
+  </nav>
+  <span id="conn"></span>
+  <form method="post" action="/logout"><button>Log out</button></form>
+</header>
+<p id="error" hidden></p>
+
+<main>
+<section id="start">
+  <h2>Get started <span id="start-count" class="note"></span>
+    <button type="button" class="help" aria-label="Help" data-help="Four steps from nothing to a Mac booting an installer. Each one turns green by itself when the server sees it done.">?</button></h2>
+  <ol id="steps" class="steps"></ol>
+</section>
+
+<section id="dashboard">
+  <p id="setup-banner" hidden><a href="#start"></a></p>
+  <h2>Services</h2>
+  <ul id="lights" class="lights"></ul>
+  <h2>Server</h2>
+  <table class="kv" id="status"></table>
+  <h2>Recent warnings</h2>
+  <ul id="warnings" class="log"></ul>
+</section>
+
+<section id="network">
+  <h2>Network <button type="button" class="help" aria-label="Help" data-help="The interface the Macs are on, and how they get addresses. Apply restarts the NetBoot services with the new settings (a Mac that is booting right then has to start again). The settings are saved: serve uses them next time unless its command line sets them.">?</button></h2>
+  <p id="net-state"></p>
+  <form id="net-form">
+    <fieldset><legend>Interface</legend>
+      <label>Interface <select name="interface"></select></label>
+      <label>Address <select name="server_ip"></select>
+        <button type="button" class="help" aria-label="Help" data-help="Only matters if the interface has several IPv4 addresses.">?</button></label>
+    </fieldset>
+    <fieldset><legend>DHCP</legend>
+      <label><input type="radio" name="dhcp_mode" value="bsdp-only"> BSDP only
+        <button type="button" class="help" aria-label="Help" data-help="Your router (or another DHCP server) gives the Macs their addresses; this server only answers the NetBoot part. Works for Mac OS X 10.2 and later.">?</button></label>
+      <label><input type="radio" name="dhcp_mode" value="full"> Full DHCP
+        <button type="button" class="help" aria-label="Help" data-help="This server gives NetBoot Macs their addresses too. Needed for Mac OS X 10.0/10.1, and for Macs whose firmware uses plain BOOTP, such as the tray-loading iMac.">?</button></label>
+      <div id="full-only">
+        <label>Answer <select name="dhcp_clients">
+          <option value="netboot">NetBoot Macs only</option>
+          <option value="all">every device</option>
+        </select>
+        <button type="button" class="help" aria-label="Help" data-help="NetBoot Macs only is safe next to a router that also does DHCP. Every device is only for a separate network with no other DHCP server.">?</button></label><br>
+        <label>Pool <input name="pool_start" placeholder="192.168.1.200" size="15"></label>
+        <label>to <input name="pool_end" placeholder="192.168.1.220" size="15">
+          <button type="button" class="help" aria-label="Help" data-help="Addresses handed to the Macs. Pick a range your router doesn't use.">?</button></label><br>
+        <label>Lease (s) <input name="lease_time" type="number" min="60" max="604800"></label>
+        <label>Router <input name="router" placeholder="optional" size="15"></label>
+        <label>DNS <input name="dns" placeholder="optional" size="22">
+          <button type="button" class="help" aria-label="Help" data-help="One or more addresses, separated by commas.">?</button></label>
+      </div>
+    </fieldset>
+    <p>
+      <button type="button" id="probe">Find DHCP servers</button>
+      <button type="button" class="help" aria-label="Help" data-help="Asks for an address on the chosen interface (without taking one) and lists every DHCP server that answers. Apply does this too, and refuses settings that would clash with another server.">?</button>
+      <span id="probe-result"></span>
+    </p>
+    <p id="force-row" hidden><label><input type="checkbox" name="force"> start anyway</label></p>
+    <p><button type="submit">Apply</button> <span id="net-result"></span></p>
+  </form>
+</section>
+
+<section id="images">
+  <h2>Images <button id="reload">Reload</button>
+    <button type="button" class="help" aria-label="Help" id="images-help" data-help="">?</button></h2>
+  <table id="images-table">
+    <thead><tr><th>Index</th><th>Name</th><th>OS</th><th>Arch</th><th>Root</th><th>Size</th>
+      <th>Enabled</th><th>Default</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+</section>
+
+<section id="build">
+  <h2>Build an install image <button type="button" class="help" aria-label="Help" data-help="Pick every disc of the install set (browse the server or drop files from this computer), set options if you like, and build. One build runs at a time.">?</button></h2>
+
+  <div id="drop" class="drop">
+    <strong>Drop discs or a folder here</strong>
+    or <button type="button" id="pick-files">Choose files&hellip;</button>
+    <button type="button" id="pick-folder">Choose folder&hellip;</button>
+    <button type="button" class="help" aria-label="Help" id="drop-help" data-help="Uploads disc images (.iso, .cdr, .dmg, .img, .toast) from this computer to the server's sources folder. An interrupted upload resumes where it stopped.">?</button>
+    <input type="file" id="file-input" multiple hidden
+      accept=".iso,.cdr,.dmg,.img,.toast,.dc42,.image">
+    <input type="file" id="folder-input" webkitdirectory hidden>
+    <ul id="uploads"></ul>
+  </div>
+
+  <div class="browser">
+    <p><span id="places"></span></p>
+    <p><strong>On the server:</strong> <span id="crumbs"></span>
+      <input id="go-path" placeholder="/path/to/folder"> <button type="button" id="go">Go</button>
+      <button type="button" class="help" aria-label="Help" data-help="Discs already on the server (a USB drive, a downloads folder) are used where they are, without copying.">?</button></p>
+    <ul id="folder" class="files"></ul>
+  </div>
+
+  <p><strong>Picked:</strong> <span id="picked" class="note">none</span></p>
+
+  <form id="build-form">
+    <label>Name <input name="name" maxlength="64" placeholder="from the disc">
+      <button type="button" class="help" aria-label="Help" data-help="Shown in Startup Disk and the Option-key picker.">?</button></label>
+    <label>Index <input name="index" type="number" min="1" max="4095" placeholder="next free">
+      <button type="button" class="help" aria-label="Help" data-help="The image's number (1-4095). Macs remember their choice by this number.">?</button></label>
+    <label>Folder <input name="dir" maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9._-]*" placeholder="from the name">
+      <button type="button" class="help" aria-label="Help" data-help="Folder name in the images folder. Keep it short: old firmware truncates long boot paths.">?</button></label>
+    <label>Root <select name="protocol"><option>HTTP</option><option>NFS</option></select>
+      <button type="button" class="help" aria-label="Help" data-help="How the Mac mounts the system image. 10.0-10.2 need NFS (10.0/10.1 are switched to it automatically); 10.3 and later can use HTTP.">?</button></label>
+    <label><input name="force" type="checkbox"> replace</label>
+    <button type="button" class="help" aria-label="Help" data-help="Replace an existing image folder with the same name.">?</button>
+    <p><button type="submit">Build</button></p>
+  </form>
+  <h2>Builds</h2>
+  <table id="builds-table">
+    <thead><tr><th>#</th><th>Discs</th><th>State</th><th>Started</th><th>Last line</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <pre id="build-log" hidden></pre>
+</section>
+
+<section id="clients">
+  <h2>Clients</h2>
+  <table id="clients-table">
+    <thead><tr><th>MAC</th><th>Model</th><th>IP</th><th>Last seen</th><th>Last activity</th>
+      <th>Saved image <button type="button" class="help" aria-label="Help" data-help="The image the Mac chose in Startup Disk or the Option-key picker. A change here takes effect at its next boot.">?</button></th></tr></thead>
+    <tbody></tbody>
+  </table>
+</section>
+
+<section id="logs">
+  <h2>Logs</h2>
+  <p>
+    <input id="log-filter" placeholder="filter">
+    <button type="button" class="help" aria-label="Help" data-help="Shows lines containing this text: a message, a subsystem (dhcp, tftp, http...) or a Mac's address.">?</button>
+    <select id="log-level">
+      <option value="10">debug</option><option value="20" selected>info</option>
+      <option value="30">warnings</option><option value="40">errors</option>
+    </select>
+    <label><input id="log-pause" type="checkbox"> pause</label>
+    <button id="log-clear">Clear</button>
+  </p>
+  <ul id="log" class="log"></ul>
+</section>
+</main>
+</body>
+</html>

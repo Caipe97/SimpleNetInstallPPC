@@ -1,4 +1,4 @@
-"""Command-line interface: ``netboot-server <command>``."""
+"""Command-line interface: ``simplenetinstallppc <command>``."""
 
 from __future__ import annotations
 
@@ -40,8 +40,9 @@ def _defaults(values: List[str]) -> Dict[str, int]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="netboot-server",
-                                     description="NetBoot server for Mac OS X 10.0-10.5")
+    parser = argparse.ArgumentParser(prog="simplenetinstallppc",
+                                     description="SimpleNetInstallPPC: NetInstall server for Mac OS X "
+                                                 "10.0-10.5")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     parser.add_argument("--data", type=Path, default=None,
@@ -78,18 +79,20 @@ def build_parser() -> argparse.ArgumentParser:
                     help="write here instead of <image>/<arch>/mach.macosx.mkext (one arch only)")
 
     serve = sub.add_parser("serve", help="run the DHCP/BSDP, TFTP and HTTP services")
-    serve.add_argument("--interface", "-i", required=True, help="interface to serve on, e.g. en0")
+    # Network settings: when left out, the ones last applied (here or in the web UI) are used.
+    serve.add_argument("--interface", "-i",
+                       help="interface to serve on, e.g. en0 (default: the last one used)")
     serve.add_argument("--server-ip", type=_ip, help="address to use if the interface has several")
-    serve.add_argument("--dhcp-mode", choices=["bsdp-only", "full"], default="bsdp-only",
+    serve.add_argument("--dhcp-mode", choices=["bsdp-only", "full"],
                        help="bsdp-only: an existing DHCP server hands out addresses (default)")
-    serve.add_argument("--dhcp-clients", choices=["netboot", "all"], default="netboot",
+    serve.add_argument("--dhcp-clients", choices=["netboot", "all"],
                        help="full mode: answer only NetBoot Macs (default, safe next to "
                             "another DHCP server) or every DHCP client (isolated LAN)")
     serve.add_argument("--pool-start", type=_ip)
     serve.add_argument("--pool-end", type=_ip)
     serve.add_argument("--router", type=_ip)
-    serve.add_argument("--dns", type=_ip, action="append", default=[])
-    serve.add_argument("--lease-time", type=int, default=3600)
+    serve.add_argument("--dns", type=_ip, action="append")
+    serve.add_argument("--lease-time", type=int)
     serve.add_argument("--http-port", type=int, default=80, help="0 disables HTTP")
     serve.add_argument("--nfs-export",
                        help="NFS export path that contains the images folder (needed for NFS images)")
@@ -112,6 +115,11 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--ignore-other-dhcp", action="store_true",
                        help="start even if the probe finds a DHCP server that conflicts "
                             "(overlapping pool, or --dhcp-clients all)")
+    serve.add_argument("--ui-port", type=int, default=8080,
+                       help="web UI port (default 8080; 0 turns the UI off)")
+    serve.add_argument("--ui-bind", default="127.0.0.1",
+                       help="web UI address (default 127.0.0.1: reach it from another "
+                            "computer with ssh -L 8080:127.0.0.1:8080 <this host>)")
     serve.add_argument("--log-file", type=Path)
 
     sub.add_parser("clients", help="list the Macs seen so far and the image each one saved")
@@ -290,19 +298,20 @@ def cmd_probe_dhcp(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace, images_root: Path, state_dir: Path) -> int:
+    from .netsettings import FIELD_NAMES, NetworkSettings
     from .server import ServeOptions, StartupError, serve
     setup_logging(args.verbose, args.log_file)
+    given = {name: getattr(args, name) for name in FIELD_NAMES if getattr(args, name) is not None}
+    network = {**NetworkSettings().__dict__, **given}
     options = ServeOptions(
-        interface=args.interface, images_root=images_root, server_ip=args.server_ip,
-        dhcp_mode=args.dhcp_mode, dhcp_clients=args.dhcp_clients,
-        pool_start=args.pool_start, pool_end=args.pool_end,
-        router=args.router, dns=args.dns, lease_time=args.lease_time,
+        images_root=images_root, given=set(given), **network,
         http_port=args.http_port, nfs_export=args.nfs_export,
         defaults=_defaults(args.default), tftp_max_blksize=args.tftp_max_blksize,
         bootparamd=not args.no_bootparamd,
         nfs_mode=args.nfs_mode, manage_roots=not args.no_manage_roots,
         keep_awake=not args.allow_sleep,
         dhcp_probe=not args.no_dhcp_probe, ignore_other_dhcp=args.ignore_other_dhcp,
+        ui_port=args.ui_port, ui_bind=args.ui_bind,
         state_dir=state_dir if state_dir.is_dir() else None)
     try:
         asyncio.run(serve(options, EventBus()))

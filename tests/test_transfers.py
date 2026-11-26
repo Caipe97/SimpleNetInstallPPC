@@ -7,9 +7,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from netboot_server.events import EventBus
-from netboot_server.net.http_server import ImageRequestHandler, parse_range, start_http_server
-from netboot_server.net.tftp import (OP_ACK, OP_DATA, OP_ERROR, OP_OACK, OP_RRQ, TftpConfig,
+from simplenetinstallppc.events import EventBus
+from simplenetinstallppc.net.http_server import ImageRequestHandler, parse_range, start_http_server
+from simplenetinstallppc.net.tftp import (OP_ACK, OP_DATA, OP_ERROR, OP_OACK, OP_RRQ, TftpConfig,
                                      TftpServer, resolve_path)
 
 

@@ -50,6 +50,7 @@ class NetBootImage:
     # Mac OS X 10.0 boots from an NFS-exported *directory*, not an image file:
     # the mounted root volume, served by bootparamd (RootDirectory key).
     root_directory: Optional[str] = None
+    os_version: str = ""
 
     @property
     def image_id(self) -> int:
@@ -120,7 +121,28 @@ def load_image(directory: Path, images_root: Path) -> NetBootImage:
         disabled_models=frozenset(info.get("DisabledSystemIdentifiers", [])),
         boot_file=str(info.get("BootFile", "booter")),
         root_directory=str(info["RootDirectory"]) if info.get("RootDirectory") else None,
+        os_version=str(info.get("osVersion", "")),
     )
+
+
+# NBImageInfo.plist keys the web UI may change.
+EDITABLE_KEYS = {"Name": str, "Description": str, "IsEnabled": bool, "IsDefault": bool}
+
+
+def update_info(directory: Path, changes: Dict[str, object]) -> None:
+    """Change some keys of an image's NBImageInfo.plist (written atomically)."""
+    for key, value in changes.items():
+        kind = EDITABLE_KEYS.get(key)
+        if kind is None or not isinstance(value, kind):
+            raise ValueError(f"can't set {key} to {value!r}")
+    path = directory / INFO_PLIST
+    with open(path, "rb") as fh:
+        info = plistlib.load(fh)
+    info.update(changes)
+    temporary = path.with_name(INFO_PLIST + ".new")
+    with open(temporary, "wb") as fh:
+        plistlib.dump(info, fh)
+    temporary.replace(path)
 
 
 class Catalog:

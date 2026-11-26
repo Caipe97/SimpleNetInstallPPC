@@ -5,9 +5,9 @@ import unittest
 import uuid
 from pathlib import Path
 
-from netboot_server.imaging.partitions import (HFS_PLUS_GPT_TYPE, UnsupportedImage,
+from simplenetinstallppc.imaging.partitions import (HFS_PLUS_GPT_TYPE, UnsupportedImage,
                                                find_volumes, pick_volume)
-from netboot_server.netif import parse_ifconfig, parse_ip_json
+from simplenetinstallppc.netif import parse_ifconfig, parse_ip_json
 
 MiB = 1024 * 1024
 

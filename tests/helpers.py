@@ -5,9 +5,9 @@ import plistlib
 from pathlib import Path
 from typing import Iterable
 
-from netboot_server.events import EventBus
-from netboot_server.net import bsdp
-from netboot_server.net.dhcp_packet import BOOTREQUEST, DhcpPacket, MessageType, Opt
+from simplenetinstallppc.events import EventBus
+from simplenetinstallppc.net import bsdp
+from simplenetinstallppc.net.dhcp_packet import BOOTREQUEST, DhcpPacket, MessageType, Opt
 
 SERVER_IP = ipaddress.IPv4Address("10.0.0.1")
 CLIENT_MAC = bytes.fromhex("000a95aabbcc")

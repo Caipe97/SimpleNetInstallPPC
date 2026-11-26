@@ -3,7 +3,7 @@
 Every subsystem logs through a ``netboot.<subsystem>`` logger. Structured
 events (a client asked for the image list, a TFTP transfer finished, ...)
 also go to the :class:`EventBus`, which keeps a ring buffer. The web UI
-(Phase 4) will read the buffer and subscribe to live events from it.
+reads the buffer and subscribes to live events from it.
 """
 
 from __future__ import annotations
@@ -26,6 +26,8 @@ class Event:
     client: Optional[str] = None   # client MAC (aa:bb:cc:dd:ee:ff) or IP
     data: Dict[str, object] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
+    level: int = logging.INFO
+    seq: int = 0            # increasing number, so a reader can ask for what it missed
 
 
 Subscriber = Callable[[Event], None]
@@ -36,12 +38,15 @@ class EventBus:
         self._buffer: Deque[Event] = collections.deque(maxlen=capacity)
         self._subscribers: List[Subscriber] = []
         self._lock = threading.Lock()
+        self._seq = 0
 
     def emit(self, subsystem: str, kind: str, message: str, *,
              client: Optional[str] = None, level: int = logging.INFO,
              **data: object) -> Event:
-        event = Event(subsystem, kind, message, client, dict(data))
+        event = Event(subsystem, kind, message, client, dict(data), level=level)
         with self._lock:
+            self._seq += 1
+            event.seq = self._seq
             self._buffer.append(event)
             subscribers = list(self._subscribers)
         prefix = f"[{client}] " if client else ""
@@ -66,6 +71,11 @@ class EventBus:
     def recent(self, limit: int = 200) -> List[Event]:
         with self._lock:
             return list(self._buffer)[-limit:]
+
+    def since(self, seq: int, limit: int = 1000) -> List[Event]:
+        """Events newer than ``seq`` still in the buffer (the last ``limit`` of them)."""
+        with self._lock:
+            return [e for e in self._buffer if e.seq > seq][-limit:]
 
 
 def setup_logging(verbose: bool = False, log_file: Optional[Path] = None) -> None:

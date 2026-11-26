@@ -10,12 +10,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from netboot_server.catalog import Catalog
-from netboot_server.events import EventBus
-from netboot_server.net import nfs2, rpc
-from netboot_server.net.bootparamd import BOOTPARAM_PROG, PROC_WHOAMI
-from netboot_server.net.portmap import Portmapper, answer_broadcast, parse_ipv4_udp
-from netboot_server.roots import (BEGIN, END, RootManager, default_root_directory,
+from simplenetinstallppc.catalog import Catalog
+from simplenetinstallppc.events import EventBus
+from simplenetinstallppc.net import nfs2, rpc
+from simplenetinstallppc.net.bootparamd import BOOTPARAM_PROG, PROC_WHOAMI
+from simplenetinstallppc.net.portmap import Portmapper, answer_broadcast, parse_ipv4_udp
+from simplenetinstallppc.roots import (BEGIN, END, RootManager, default_root_directory,
                                   is_folder_style, render_exports)
 
 from helpers import RecordingBus, make_image

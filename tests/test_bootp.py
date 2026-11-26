@@ -5,14 +5,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from netboot_server.catalog import Catalog
-from netboot_server.net.dhcp_packet import (BOOTREPLY, BOOTREQUEST, MAGIC_COOKIE, DhcpPacket,
+from simplenetinstallppc.catalog import Catalog
+from simplenetinstallppc.net.dhcp_packet import (BOOTREPLY, BOOTREQUEST, MAGIC_COOKIE, DhcpPacket,
                                             MessageType, Opt)
-from netboot_server.net.dhcp_server import DhcpBsdpServer, DhcpConfig
-from netboot_server.net.leases import LeasePool
+from simplenetinstallppc.net.dhcp_server import DhcpBsdpServer, DhcpConfig
+from simplenetinstallppc.net.leases import LeasePool
 
-from netboot_server.net import bsdp
-from netboot_server.net.bsdp import BsdpMessageType, BsdpTag
+from simplenetinstallppc.net import bsdp
+from simplenetinstallppc.net.bsdp import BsdpMessageType, BsdpTag
 
 from helpers import CLIENT_MAC, SERVER_IP, RecordingBus, bsdp_inform, make_image
 

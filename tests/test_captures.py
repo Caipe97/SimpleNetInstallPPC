@@ -27,15 +27,15 @@ import time
 import unittest
 from pathlib import Path
 
-from netboot_server.catalog import Catalog
-from netboot_server.events import EventBus
-from netboot_server.net import bsdp, nfs2, rpc
-from netboot_server.net.bsdp import BsdpTag, ClientClass
-from netboot_server.net.dhcp_packet import BOOTREQUEST, DhcpPacket, MessageType, Opt
-from netboot_server.net.dhcp_server import DhcpBsdpServer, DhcpConfig
-from netboot_server.net.leases import LeasePool
-from netboot_server.net.portmap import Portmapper
-from netboot_server.store import Store
+from simplenetinstallppc.catalog import Catalog
+from simplenetinstallppc.events import EventBus
+from simplenetinstallppc.net import bsdp, nfs2, rpc
+from simplenetinstallppc.net.bsdp import BsdpTag, ClientClass
+from simplenetinstallppc.net.dhcp_packet import BOOTREQUEST, DhcpPacket, MessageType, Opt
+from simplenetinstallppc.net.dhcp_server import DhcpBsdpServer, DhcpConfig
+from simplenetinstallppc.net.leases import LeasePool
+from simplenetinstallppc.net.portmap import Portmapper
+from simplenetinstallppc.store import Store
 
 from helpers import make_image
 from capture import FIXTURES, read_udp

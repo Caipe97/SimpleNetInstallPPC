@@ -3,7 +3,7 @@ import subprocess
 import sys
 import unittest
 
-from netboot_server.server import keep_awake_command
+from simplenetinstallppc.server import keep_awake_command
 
 
 class KeepAwakeCommandTests(unittest.TestCase):
@@ -14,7 +14,7 @@ class KeepAwakeCommandTests(unittest.TestCase):
     def test_linux_blocks_sleep_and_idle_until_we_exit(self):
         command = keep_awake_command(42, "linux", which=lambda name: f"/usr/bin/{name}")
         self.assertEqual(command[:5], ["systemd-inhibit", "--what=sleep:idle",
-                                       "--who=netboot-server", "--why=Serving NetBoot clients",
+                                       "--who=simplenetinstallppc", "--why=Serving NetBoot clients",
                                        "--mode=block"])
         self.assertEqual(command[5:], ["tail", "--pid=42", "-f", "/dev/null"])
 

@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "netboot-server"
+name = "SimpleNetInstallPPC"
 version = "0.1.0"
 description = "NetBoot / NetInstall server for Mac OS X 10.0-10.5 (and later Mac OS 9), hosted on Linux or macOS"
 readme = "README.md"
@@ -13,7 +13,10 @@ license = { text = "MIT" }
 dependencies = []
 
 [project.scripts]
-netboot-server = "netboot_server.cli:main"
+simplenetinstallppc = "simplenetinstallppc.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+simplenetinstallppc = ["web/static/*"]
