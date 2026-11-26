@@ -37,7 +37,8 @@ from ..net.bsdp import ImageKind
 from ..roots import default_root_directory, is_folder_style
 from .merge import Disc, apply_merge, find_proxies, grow_hfsplus, plan_merge
 from .mkext import build_from_volume
-from .partitions import UnsupportedImage, Volume, find_volumes, is_udif, pick_volume
+from .partitions import UnsupportedImage, Volume, find_volumes, is_udif, open_image, pick_volume
+from .udif import UdifError, convert_to_raw
 
 ROOT_IMAGE = "root.dmg"
 COPY_CHUNK = 8 * 1024 * 1024
@@ -73,25 +74,32 @@ def _default_progress(message: str) -> None:
 
 # -- raw conversion -------------------------------------------------------------
 def ensure_raw(source: Path, work: Path, progress: Progress) -> Path:
+    """A raw copy of a .dmg (for discs that get mounted); other images as they are."""
     if not is_udif(source):
         return source
-    if sys.platform != "darwin":
-        raise UnsupportedImage(
-            f"{source.name} is a compressed UDIF image. On Linux, convert it first: "
-            f"dmg2img {source.name} {source.stem}.img")
     target = work / (source.stem + ".cdr")
-    progress(f"Converting {source.name} to a raw image with hdiutil...")
-    subprocess.run(["hdiutil", "convert", str(source), "-format", "UDTO",
-                    "-o", str(work / source.stem)], check=True,
-                   stdout=subprocess.DEVNULL)
-    return target
+    target.unlink(missing_ok=True)
+    if sys.platform == "darwin":
+        progress(f"Converting {source.name} to a raw image with hdiutil...")
+        result = subprocess.run(["hdiutil", "convert", str(source), "-format", "UDTO",
+                                 "-o", str(work / source.stem)],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        if result.returncode == 0:
+            return target
+        progress(f"  hdiutil failed ({result.stderr.strip()}); trying the built-in reader")
+    progress(f"Decompressing {source.name} to a raw image...")
+    try:
+        return convert_to_raw(source, target, progress)
+    except UdifError as exc:
+        target.unlink(missing_ok=True)
+        raise UnsupportedImage(f"{source.name}: {exc}") from exc
 
 
 def copy_volume(source: Path, volume: Volume, target: Path, progress: Progress) -> None:
     total = volume.length
     done = 0
     last_report = 0.0
-    with open(source, "rb") as src, open(target, "wb") as dst:
+    with open_image(source) as src, open(target, "wb") as dst:
         src.seek(volume.offset)
         while done < total:
             chunk = src.read(min(COPY_CHUNK, total - done))
@@ -302,18 +310,14 @@ def make_test_image(source: Path, images_root: Path, *, dir_name: Optional[str] 
                                                               target / ROOT_IMAGE, progress)
         warnings += merge_warnings
     else:
-        raw = ensure_raw(source, work, progress)
-        try:
-            volumes = find_volumes(raw)
-            for i, volume in enumerate(volumes):
-                progress(f"  volume #{i}: {volume.kind} {volume.name!r} at {volume.offset}, "
-                         f"{volume.length // (1024 * 1024)} MiB ({volume.scheme})")
-            volume = pick_volume(volumes, volume_index)
-            progress(f"Copying volume {volume.name!r} to {target / ROOT_IMAGE}...")
-            copy_volume(raw, volume, target / ROOT_IMAGE, progress)
-        finally:
-            if raw != source:
-                raw.unlink(missing_ok=True)
+        # A .dmg is read in place: only the chunks of the chosen volume are decoded.
+        volumes = find_volumes(source)
+        for i, volume in enumerate(volumes):
+            progress(f"  volume #{i}: {volume.kind} {volume.name!r} at {volume.offset}, "
+                     f"{volume.length // (1024 * 1024)} MiB ({volume.scheme})")
+        volume = pick_volume(volumes, volume_index)
+        progress(f"Copying volume {volume.name!r} to {target / ROOT_IMAGE}...")
+        copy_volume(source, volume, target / ROOT_IMAGE, progress)
 
     if volume.journaled:
         warnings.append("volume is journaled; served read-only, which is fine for NetBoot")

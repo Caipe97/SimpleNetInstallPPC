@@ -20,7 +20,8 @@ the test procedure.
   automatically: auto-mount, a managed `/etc/exports` block on macOS, and a
   built-in read-only NFS v2 server on Linux. The image maker builds an mkext
   when the media lacks one.
-- **Image maker.** `make-test-image` turns a `.dmg`/`.img`/`.iso`/`.cdr` of
+- **Image maker.** Compressed `.dmg` files are read directly, on Linux too.
+  `make-test-image` turns a `.dmg`/`.img`/`.iso`/`.cdr` of
   an install CD/DVD into a NetInstall image folder. It handles APM, GPT,
   MBR, bare volumes and HFS wrappers. Given all the discs of a multi-CD set,
   it merges them into one image, so the installer never asks for another

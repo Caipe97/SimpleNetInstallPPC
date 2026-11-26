@@ -101,12 +101,14 @@ class PartitionTests(unittest.TestCase):
         self.assertEqual((volume.kind, volume.offset, volume.length), ("hfs+", inner, 900 * 2048))
         self.assertEqual(volume.name, "Mac OS9")
 
-    def test_udif_is_rejected_with_advice(self):
+    def test_broken_udif_is_reported(self):
+        # A UDIF trailer with no block maps: read as a .dmg (test_udif.py has
+        # real ones), and refused with the reason.
         image = bytearray(4096)
         write_at(image, 4096 - 512, b"koly")
         with self.assertRaises(UnsupportedImage) as ctx:
             find_volumes(self.save(image))
-        self.assertIn("dmg2img", str(ctx.exception))
+        self.assertIn("no block maps", str(ctx.exception))
 
     def test_pick_volume(self):
         with self.assertRaises(UnsupportedImage):

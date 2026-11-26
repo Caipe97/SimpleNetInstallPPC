@@ -150,20 +150,24 @@ def _mbr_volumes(fh: BinaryIO) -> List[Volume]:
 
 
 def is_udif(path: Path) -> bool:
-    size = path.stat().st_size
-    if size < 512:
-        return False
-    with open(path, "rb") as fh:
-        return _read(fh, size - 512, 4) == b"koly"
+    from .udif import is_udif as _is_udif
+    return _is_udif(path)
+
+
+def open_image(path: Path) -> BinaryIO:
+    """The image's raw bytes: the file itself, or the disk inside a UDIF .dmg."""
+    if is_udif(path):
+        from .udif import UdifError, UdifFile
+        try:
+            return UdifFile(path)  # type: ignore[return-value]
+        except UdifError as exc:
+            raise UnsupportedImage(f"{path.name}: {exc}") from exc
+    return open(path, "rb")
 
 
 def find_volumes(path: Path) -> List[Volume]:
-    """List HFS-family volumes in a raw image. HFS wrappers are unwrapped."""
-    if is_udif(path):
-        raise UnsupportedImage(
-            f"{path.name} is a compressed UDIF image; convert it to raw first "
-            "(macOS: hdiutil convert -format UDTO; Linux: dmg2img)")
-    with open(path, "rb") as fh:
+    """List HFS-family volumes in a raw image or a .dmg. HFS wrappers are unwrapped."""
+    with open_image(path) as fh:
         volumes = _gpt_volumes(fh) or _apm_volumes(fh) or _mbr_volumes(fh)
         if not volumes:
             bare = probe_volume(fh, 0, "none")
