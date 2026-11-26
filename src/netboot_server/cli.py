@@ -106,7 +106,16 @@ def build_parser() -> argparse.ArgumentParser:
                        help="let the host sleep while serving (by default it's kept awake)")
     serve.add_argument("--no-manage-roots", action="store_true",
                        help="don't mount/export 10.0/10.1 RootDirectory folders automatically")
+    serve.add_argument("--no-dhcp-probe", action="store_true",
+                       help="don't look for other DHCP servers before starting")
+    serve.add_argument("--ignore-other-dhcp", action="store_true",
+                       help="start even if the probe finds a DHCP server that conflicts "
+                            "(overlapping pool, or --dhcp-clients all)")
     serve.add_argument("--log-file", type=Path)
+
+    probe = sub.add_parser("probe-dhcp", help="list the DHCP servers that answer on an interface")
+    probe.add_argument("--interface", "-i", required=True)
+    probe.add_argument("--timeout", type=float, default=3.0)
     return parser
 
 
@@ -187,6 +196,23 @@ def cmd_build_mkext(args: argparse.Namespace, images_root: Path) -> int:
     return 0
 
 
+def cmd_probe_dhcp(args: argparse.Namespace) -> int:
+    from .net.dhcp_probe import probe
+    from .netif import get_interface
+    iface = get_interface(args.interface)
+    if not iface.mac:
+        print(f"error: {iface.name} has no Ethernet address", file=sys.stderr)
+        return 1
+    own = [str(a.ip) for a in iface.addresses]
+    answers = probe(iface.name, iface.mac, ignore=own, timeout=args.timeout)
+    if not answers:
+        print(f"no DHCP server answered on {iface.name} within {args.timeout:g}s")
+        return 1
+    for answer in answers:
+        print(answer.describe())
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace, images_root: Path, state_dir: Path) -> int:
     from .server import ServeOptions, StartupError, serve
     setup_logging(args.verbose, args.log_file)
@@ -200,6 +226,7 @@ def cmd_serve(args: argparse.Namespace, images_root: Path, state_dir: Path) -> i
         bootparamd=not args.no_bootparamd,
         nfs_mode=args.nfs_mode, manage_roots=not args.no_manage_roots,
         keep_awake=not args.allow_sleep,
+        dhcp_probe=not args.no_dhcp_probe, ignore_other_dhcp=args.ignore_other_dhcp,
         state_dir=state_dir if state_dir.is_dir() else None)
     try:
         asyncio.run(serve(options, EventBus()))
@@ -227,6 +254,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return cmd_make(args, images_root)
         if args.command == "build-mkext":
             return cmd_build_mkext(args, images_root)
+        if args.command == "probe-dhcp":
+            return cmd_probe_dhcp(args)
         if args.command == "serve":
             return cmd_serve(args, images_root, data_root)
     except (OSError, ValueError, argparse.ArgumentTypeError) as exc:

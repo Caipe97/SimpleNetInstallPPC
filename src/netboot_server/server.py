@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import functools
 import ipaddress
 import os
 import shutil
@@ -16,7 +17,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from .catalog import Catalog
 from .events import EventBus
-from .net import rpc
+from .net import dhcp_probe, rpc
 from .net.bootparamd import (BOOTPARAM_PROG, BOOTPARAM_VERS, BootparamServer,
                              forwarding_works)
 from .net.nfs2 import MOUNT_PROG, MOUNT_VERS, NFS_PROG, NFS_VERS, Nfs2Server
@@ -61,6 +62,8 @@ class ServeOptions:
     nfs_mode: str = "auto"         # folder roots: "system" (macOS nfsd), "builtin", "auto"
     manage_roots: bool = True      # mount + export RootDirectory images automatically
     keep_awake: bool = True        # stop the host from sleeping while serving
+    dhcp_probe: bool = True        # look for other DHCP servers before starting
+    ignore_other_dhcp: bool = False  # start even if the probe found a conflict
 
 
 class StartupError(Exception):
@@ -173,6 +176,31 @@ def _bind_error(exc: OSError, port: int, what: str) -> StartupError:
     return StartupError(f"{what}: cannot bind port {port}: {exc}")
 
 
+async def check_other_dhcp(options: ServeOptions, interface: str, mac: str,
+                           server_ip: IPv4, events: EventBus) -> None:
+    """Probe for other DHCP servers; raise StartupError on a conflict."""
+    loop = asyncio.get_running_loop()
+    try:
+        answers = await loop.run_in_executor(None, functools.partial(
+            dhcp_probe.probe, interface, mac, ignore=[str(server_ip)],
+            client_port=options.client_port, server_port=options.dhcp_port))
+    except dhcp_probe.ProbeUnavailable as exc:
+        events.emit("dhcp", "probe-skipped", f"{exc}; not checking for other DHCP servers",
+                    level=30)
+        return
+    pool = None
+    if options.dhcp_mode == "full" and options.pool_start and options.pool_end:
+        pool = (options.pool_start, options.pool_end)
+    lines, refusal = dhcp_probe.assess(answers, options.dhcp_mode, options.dhcp_clients, pool)
+    for level, message in lines:
+        events.emit("dhcp", "probe", message, level=level)
+    if refusal is None:
+        return
+    if not options.ignore_other_dhcp:
+        raise StartupError(f"{refusal} (or add --ignore-other-dhcp to start anyway)")
+    events.emit("dhcp", "probe", f"{refusal}; starting anyway (--ignore-other-dhcp)", level=30)
+
+
 async def serve(options: ServeOptions, events: EventBus,
                 stop: Optional[asyncio.Event] = None) -> None:
     loop = asyncio.get_running_loop()
@@ -186,6 +214,8 @@ async def serve(options: ServeOptions, events: EventBus,
         if address is None:
             raise StartupError(f"interface {iface.name} has no IPv4 address")
     server_ip = address.ip
+    if options.dhcp_probe and iface.mac:
+        await check_other_dhcp(options, iface.name, iface.mac, server_ip, events)
 
     catalog = Catalog(options.images_root)
     catalog.default_index.update(options.defaults)

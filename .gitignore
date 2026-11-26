@@ -10,3 +10,4 @@ dist/
 *.dmg
 *.cdr
 *.iso
+!tests/fixtures/*.pcap
