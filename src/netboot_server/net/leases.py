@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import ipaddress
-import json
 import logging
 import time
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, Iterable, Optional, Set
+from typing import TYPE_CHECKING, Dict, Iterable, Optional, Set
+
+if TYPE_CHECKING:
+    from ..store import Store
 
 log = logging.getLogger("netboot.dhcp")
 
@@ -28,7 +29,7 @@ class Lease:
 class LeasePool:
     def __init__(self, start: IPv4, end: IPv4, lease_time: int = 3600,
                  reservations: Optional[Dict[str, IPv4]] = None,
-                 excluded: Iterable[IPv4] = (), state_file: Optional[Path] = None,
+                 excluded: Iterable[IPv4] = (), store: Optional["Store"] = None,
                  clock=time.time) -> None:
         if int(end) < int(start):
             raise ValueError("pool end is before pool start")
@@ -36,7 +37,7 @@ class LeasePool:
         self.lease_time = lease_time
         self.reservations = {mac.lower(): ip for mac, ip in (reservations or {}).items()}
         self.excluded: Set[IPv4] = set(excluded)
-        self.state_file = state_file
+        self.store = store
         self._clock = clock
         self._leases: Dict[str, Lease] = {}
         self._quarantine: Dict[IPv4, float] = {}
@@ -108,13 +109,15 @@ class LeasePool:
             return False
         if not self._available(ip, mac):
             return False
-        self._leases[mac] = Lease(ip, self._clock() + self.lease_time, bound=True)
-        self._save()
+        lease = Lease(ip, self._clock() + self.lease_time, bound=True)
+        self._leases[mac] = lease
+        if self.store:
+            self.store.save_lease(mac, str(ip), lease.expires)
         return True
 
     def release(self, mac: str) -> None:
-        if self._leases.pop(mac.lower(), None) is not None:
-            self._save()
+        if self._leases.pop(mac.lower(), None) is not None and self.store:
+            self.store.delete_lease(mac)
 
     def drop_offer(self, mac: str) -> None:
         lease = self._leases.get(mac.lower())
@@ -127,21 +130,11 @@ class LeasePool:
         self.release(mac)
 
     # -- persistence -------------------------------------------------------------
-    def _save(self) -> None:
-        if not self.state_file:
-            return
-        data = {mac: {"ip": str(lease.ip), "expires": lease.expires}
-                for mac, lease in self._leases.items() if lease.bound}
-        tmp = self.state_file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=1))
-        tmp.replace(self.state_file)
-
     def _load(self) -> None:
-        if not self.state_file or not self.state_file.exists():
+        if not self.store:
             return
-        try:
-            data = json.loads(self.state_file.read_text())
-            for mac, entry in data.items():
-                self._leases[mac] = Lease(IPv4(entry["ip"]), float(entry["expires"]), True)
-        except (ValueError, KeyError, OSError) as exc:
-            log.warning("ignoring unreadable lease file %s: %s", self.state_file, exc)
+        for mac, (ip, expires) in self.store.leases().items():
+            try:
+                self._leases[mac] = Lease(IPv4(ip), expires, True)
+            except ValueError as exc:
+                log.warning("ignoring saved lease for %s: %s", mac, exc)

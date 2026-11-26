@@ -22,7 +22,6 @@ offers and other devices were filtered out):
 from __future__ import annotations
 
 import ipaddress
-import json
 import tempfile
 import time
 import unittest
@@ -36,6 +35,7 @@ from netboot_server.net.dhcp_packet import BOOTREQUEST, DhcpPacket, MessageType,
 from netboot_server.net.dhcp_server import DhcpBsdpServer, DhcpConfig
 from netboot_server.net.leases import LeasePool
 from netboot_server.net.portmap import Portmapper
+from netboot_server.store import Store
 
 from helpers import make_image
 from capture import FIXTURES, read_udp
@@ -127,22 +127,21 @@ class ReplayTests(unittest.TestCase):
         catalog.default_index.update({"ppc": 4})
 
         # State the server had when the capture started.
+        self.store = Store()
         expires = time.time() + 3000
-        (base / "leases.json").write_text(json.dumps({
-            SLOT: {"ip": "192.168.50.50", "expires": expires},
-            TRAY: {"ip": "192.168.50.51", "expires": expires}}))
-        self.bindings = base / "bsdp-bindings.json"
-        self.bindings.write_text(json.dumps({TRAY: 5, SLOT: 4}))
+        self.store.save_lease(SLOT, "192.168.50.50", expires)
+        self.store.save_lease(TRAY, "192.168.50.51", expires)
+        self.store.set_selected_image(TRAY, 5)
+        self.store.set_selected_image(SLOT, 4)
 
         pool = LeasePool(IP("192.168.50.50"), IP("192.168.50.59"), 3600,
-                         excluded=[IP(SERVER), IP("192.168.50.253")],
-                         state_file=base / "leases.json")
+                         excluded=[IP(SERVER), IP("192.168.50.253")], store=self.store)
         config = DhcpConfig(server_ip=IP(SERVER), subnet=ipaddress.IPv4Network("192.168.50.0/24"),
                             mode="full", clients="netboot", pool=pool,
                             router=IP("192.168.50.253"), dns=[IP("192.168.50.253")],
                             nfs_export="/var/lib/netboot-server/images",
                             http_base=f"http://{SERVER}")
-        self.server = DhcpBsdpServer(config, catalog, EventBus(), self.bindings)
+        self.server = DhcpBsdpServer(config, catalog, EventBus(), self.store)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -176,7 +175,8 @@ class ReplayTests(unittest.TestCase):
                         mismatches.append((request.time, key, g.__dict__[key], w.__dict__[key]))
         self.assertEqual(mismatches, [])
         # The Startup Disk choice is saved, as it was in the real run.
-        self.assertEqual(json.loads(self.bindings.read_text()), {TRAY: 1, SLOT: 4})
+        self.assertEqual({c.mac: c.selected_image for c in self.store.clients()},
+                         {TRAY: 1, SLOT: 4})
 
 
 class CapturedRpcTests(unittest.TestCase):

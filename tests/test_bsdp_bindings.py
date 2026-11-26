@@ -1,7 +1,6 @@
 """Startup Disk: a SELECT from the running OS is remembered and named in later LIST replies."""
 
 import ipaddress
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +10,7 @@ from netboot_server.net import bsdp
 from netboot_server.net.bsdp import BsdpMessageType, BsdpTag
 from netboot_server.net.dhcp_packet import DhcpPacket, Opt
 from netboot_server.net.dhcp_server import DhcpBsdpServer, DhcpConfig
+from netboot_server.store import Store
 
 from helpers import SERVER_IP, RecordingBus, bsdp_inform, make_image
 
@@ -27,16 +27,18 @@ class BindingTests(unittest.TestCase):
         make_image(self.root, 6, "Leopard Intel", ("i386",))
         self.catalog = Catalog(self.root)
         self.catalog.reload()
-        self.bindings = Path(self.tmp.name) / "bsdp-bindings.json"
+        self.data = Path(self.tmp.name)
+        self.store = Store.open(self.data)
         self.server = self.make_server()
 
     def tearDown(self):
+        self.store.close()
         self.tmp.cleanup()
 
-    def make_server(self):
+    def make_server(self, store=None):
         config = DhcpConfig(server_ip=SERVER_IP, subnet=ipaddress.IPv4Network("10.0.0.0/24"),
                             http_base="http://10.0.0.1", nfs_export="/srv/images")
-        return DhcpBsdpServer(config, self.catalog, RecordingBus(), self.bindings)
+        return DhcpBsdpServer(config, self.catalog, RecordingBus(), store or self.store)
 
     def options(self, server, packet):
         [(reply, _)] = server.handle(DhcpPacket.decode(packet.encode()))
@@ -67,28 +69,46 @@ class BindingTests(unittest.TestCase):
         self.assertEqual(options[BsdpTag.DEFAULT_BOOT_IMAGE],
                          bsdp.u32(self.catalog.by_index(4).image_id))
 
+    def selected(self, options):
+        return options.get(BsdpTag.SELECTED_BOOT_IMAGE)
+
+    def image_id(self, index):
+        return bsdp.u32(self.catalog.by_index(index).image_id)
+
     def test_binding_survives_a_restart(self):
         self.select(self.server, 5)
-        self.assertEqual(json.loads(self.bindings.read_text()), {MAC: 5})
-        options = self.list_options(self.make_server())
-        self.assertEqual(options[BsdpTag.SELECTED_BOOT_IMAGE],
-                         bsdp.u32(self.catalog.by_index(5).image_id))
+        self.store.close()
+        self.store = Store.open(self.data)
+        self.assertEqual(self.store.selected_image(MAC), 5)
+        self.assertEqual(self.selected(self.list_options(self.make_server())), self.image_id(5))
 
     def test_binding_to_a_removed_or_unsuitable_image_is_not_sent(self):
-        self.bindings.write_text(json.dumps({MAC: 6}))   # Intel-only image, PPC client
-        self.assertNotIn(BsdpTag.SELECTED_BOOT_IMAGE, self.list_options(self.make_server()))
-        self.bindings.write_text(json.dumps({MAC: 99}))  # no such image
-        self.assertNotIn(BsdpTag.SELECTED_BOOT_IMAGE, self.list_options(self.make_server()))
+        self.store.set_selected_image(MAC, 6)     # Intel-only image, PPC client
+        self.assertIsNone(self.selected(self.list_options(self.make_server())))
+        self.store.set_selected_image(MAC, 99)    # no such image
+        self.assertIsNone(self.selected(self.list_options(self.make_server())))
 
     def test_select_for_another_server_clears_the_binding(self):
         self.select(self.server, 5)
         self.assertEqual(self.select(self.server, 5, IP("10.0.0.2")), [])
-        self.assertNotIn(BsdpTag.SELECTED_BOOT_IMAGE, self.list_options())
-        self.assertEqual(json.loads(self.bindings.read_text()), {})
+        self.assertIsNone(self.selected(self.list_options()))
+        self.assertIsNone(self.store.selected_image(MAC))
 
-    def test_unreadable_bindings_file_is_ignored(self):
-        self.bindings.write_text("not json")
-        self.assertNotIn(BsdpTag.SELECTED_BOOT_IMAGE, self.list_options(self.make_server()))
+    def test_set_image_takes_effect_while_the_server_runs(self):
+        # `set-image` runs in another process, with its own connection.
+        self.select(self.server, 5)
+        other = Store.open(self.data)
+        other.set_selected_image(MAC, 4)
+        self.assertEqual(self.selected(self.list_options()), self.image_id(4))
+        other.set_selected_image(MAC, None)        # back to the default
+        self.assertIsNone(self.selected(self.list_options()))
+        other.close()
+
+    def test_a_mac_in_the_store_is_known_after_a_restart(self):
+        self.list_options()
+        server = self.make_server()
+        record = server.clients[MAC]
+        self.assertEqual((record.arch, record.model), ("ppc", "PowerMac3,4"))
 
     def test_list_fits_in_one_option_with_the_selected_tag(self):
         for i in range(7, 40):

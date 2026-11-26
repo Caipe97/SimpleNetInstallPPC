@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import ipaddress
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -113,6 +114,12 @@ def build_parser() -> argparse.ArgumentParser:
                             "(overlapping pool, or --dhcp-clients all)")
     serve.add_argument("--log-file", type=Path)
 
+    sub.add_parser("clients", help="list the Macs seen so far and the image each one saved")
+    setimg = sub.add_parser("set-image",
+                            help="change the image a Mac boots next (works while serve runs)")
+    setimg.add_argument("mac", help="the Mac's Ethernet address, e.g. 00:30:65:00:00:b2")
+    setimg.add_argument("image", help="image index, or 'default' to clear the Mac's choice")
+
     probe = sub.add_parser("probe-dhcp", help="list the DHCP servers that answer on an interface")
     probe.add_argument("--interface", "-i", required=True)
     probe.add_argument("--timeout", type=float, default=3.0)
@@ -196,6 +203,75 @@ def cmd_build_mkext(args: argparse.Namespace, images_root: Path) -> int:
     return 0
 
 
+def _open_store(data_root: Path):
+    import sqlite3
+    from .store import DB_NAME, Store
+    try:
+        return Store.open(data_root)
+    except sqlite3.Error as exc:
+        raise OSError(f"can't open {data_root / DB_NAME}: {exc} (run with sudo?)") from exc
+
+
+def cmd_clients(data_root: Path, images_root: Path) -> int:
+    import time
+    catalog = Catalog(images_root)
+    catalog.reload()
+    store = _open_store(data_root)
+    rows = store.clients()
+    store.close()
+    if not rows:
+        print("no Macs seen yet")
+        return 0
+    print(f"{'MAC':17}  {'model':14} {'arch':5} {'IP':15} {'last seen':16}  saved image")
+    for row in rows:
+        seen = (time.strftime("%Y-%m-%d %H:%M", time.localtime(row.last_seen))
+                if row.last_seen else "-")
+        if row.selected_image is None:
+            saved = "- (boots the default)"
+        else:
+            image = catalog.by_index(row.selected_image)
+            saved = (f"{row.selected_image} {image.name!r}" if image
+                     else f"{row.selected_image} (no such image: boots the default)")
+        print(f"{row.mac:17}  {row.model or '-':14} {row.arch or '-':5} {row.ip or '-':15} "
+              f"{seen:16}  {saved}")
+    return 0
+
+
+def _mac(text: str) -> str:
+    digits = re.sub(r"[^0-9a-fA-F]", "", text)
+    if len(digits) != 12:
+        raise ValueError(f"not an Ethernet address: {text!r}")
+    return ":".join(digits[i:i + 2] for i in range(0, 12, 2)).lower()
+
+
+def cmd_set_image(args: argparse.Namespace, data_root: Path, images_root: Path) -> int:
+    mac = _mac(args.mac)
+    catalog = Catalog(images_root)
+    catalog.reload()
+    index = None
+    if args.image.lower() not in ("default", "none"):
+        index = int(args.image)
+        image = catalog.by_index(index)
+        if image is None:
+            print(f"error: no image with index {index} in {images_root}", file=sys.stderr)
+            return 1
+    store = _open_store(data_root)
+    known = store.client(mac)
+    store.set_selected_image(mac, index)
+    store.close()
+    if index is None:
+        print(f"{mac} will boot the default image")
+    else:
+        print(f"{mac} will boot {image.name!r} (index {index})")
+        if known and known.arch and not image.supports(known.arch, known.model):
+            print(f"warning: {image.name!r} isn't offered to this Mac "
+                  f"({known.model or known.arch}); it will boot the default", file=sys.stderr)
+    if not known:
+        print("note: this Mac hasn't been seen yet")
+    print("A running server uses this from the Mac's next request; no restart needed.")
+    return 0
+
+
 def cmd_probe_dhcp(args: argparse.Namespace) -> int:
     from .net.dhcp_probe import probe
     from .netif import get_interface
@@ -254,6 +330,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             return cmd_make(args, images_root)
         if args.command == "build-mkext":
             return cmd_build_mkext(args, images_root)
+        if args.command == "clients":
+            return cmd_clients(data_root, images_root)
+        if args.command == "set-image":
+            return cmd_set_image(args, data_root, images_root)
         if args.command == "probe-dhcp":
             return cmd_probe_dhcp(args)
         if args.command == "serve":

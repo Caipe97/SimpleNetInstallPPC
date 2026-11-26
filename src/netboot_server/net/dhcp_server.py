@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
-import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -31,6 +30,7 @@ from urllib.parse import quote
 
 from ..catalog import Catalog, NetBootImage
 from ..events import EventBus
+from ..store import Store
 from . import bsdp
 from .bsdp import BsdpMessageType, BsdpTag, ClientClass
 from .dhcp_packet import BOOTREPLY, BOOTREQUEST, DhcpPacket, MessageType, Opt, ip_list
@@ -51,7 +51,7 @@ class DhcpConfig:
     subnet: ipaddress.IPv4Network
     mode: str = "bsdp-only"                 # "bsdp-only" or "full"
     # Full mode only: "netboot" answers just Macs that identify as BSDP clients
-    # (now, or earlier in this run, or saved in bsdp-bindings.json), so the
+    # (now, or on an earlier boot, as recorded in the store), so the
     # server can share a LAN with the household's DHCP server. "all" answers
     # every DHCP client, for an isolated test LAN.
     clients: str = "netboot"
@@ -102,43 +102,40 @@ def root_path_for(image: NetBootImage, config: DhcpConfig) -> Optional[str]:
 
 class DhcpBsdpServer(asyncio.DatagramProtocol):
     def __init__(self, config: DhcpConfig, catalog: Catalog, events: EventBus,
-                 bindings_file: Optional[Path] = None) -> None:
+                 store: Optional[Store] = None) -> None:
         self.config = config
         self.catalog = catalog
         self.events = events
         self.clients: Dict[str, ClientRecord] = {}
         self.transport: Optional[asyncio.DatagramTransport] = None
-        self.bindings_file = bindings_file
-        self._load_bindings()
+        self.store = store
+        if store is not None:
+            for row in store.clients():
+                self.clients[row.mac] = ClientRecord(
+                    row.mac, arch=row.arch, model=row.model, ip=row.ip,
+                    last_seen=row.last_seen or 0.0, last_message=row.last_message or "",
+                    selected_image=row.selected_image)
 
-    # -- bindings (each Mac's last selected image), kept across restarts ----------
-    def _load_bindings(self) -> None:
-        if not self.bindings_file or not self.bindings_file.exists():
+    # -- each Mac's saved image (its last selection), kept in the store -----------
+    def _refresh(self, mac: str) -> None:
+        """Re-read this Mac's saved image, which `set-image` may have changed."""
+        if self.store is None:
             return
-        try:
-            data = json.loads(self.bindings_file.read_text())
-            for mac, index in data.items():
-                self.clients.setdefault(mac, ClientRecord(mac)).selected_image = int(index)
-        except (ValueError, TypeError, AttributeError, OSError) as exc:
-            log.warning("ignoring unreadable bindings file %s: %s", self.bindings_file, exc)
-
-    def _save_bindings(self) -> None:
-        if not self.bindings_file:
-            return
-        data = {mac: r.selected_image for mac, r in sorted(self.clients.items())
-                if r.selected_image is not None}
-        try:
-            tmp = self.bindings_file.with_suffix(".tmp")
-            tmp.write_text(json.dumps(data, indent=1))
-            tmp.replace(self.bindings_file)
-        except OSError as exc:
-            log.warning("could not save %s: %s", self.bindings_file, exc)
+        row = self.store.client(mac)
+        if row is not None:
+            self.clients.setdefault(mac, ClientRecord(mac)).selected_image = row.selected_image
 
     def _set_binding(self, mac: str, index: Optional[int]) -> None:
         record = self.clients.setdefault(mac, ClientRecord(mac))
-        if record.selected_image != index:
-            record.selected_image = index
-            self._save_bindings()
+        record.selected_image = index
+        if self.store is not None:
+            self.store.set_selected_image(mac, index)
+
+    def _save_client(self, record: ClientRecord) -> None:
+        if self.store is not None:
+            self.store.update_client(record.mac, arch=record.arch, model=record.model,
+                                     ip=record.ip, last_seen=record.last_seen,
+                                     last_message=record.last_message)
 
     def bound_image(self, mac: str, images: List[NetBootImage]) -> Optional[NetBootImage]:
         """The image this Mac last selected, if it is still offered to it."""
@@ -172,6 +169,7 @@ class DhcpBsdpServer(asyncio.DatagramProtocol):
     def handle(self, packet: DhcpPacket) -> List[Reply]:
         if packet.op != BOOTREQUEST:
             return []
+        self._refresh(packet.mac)
         message_type = packet.message_type
         client_class = ClientClass.parse(packet.options.get(Opt.VENDOR_CLASS))
         bsdp_options: Dict[int, bytes] = {}
@@ -232,6 +230,7 @@ class DhcpBsdpServer(asyncio.DatagramProtocol):
             record.ip = str(packet.ciaddr)
         record.last_seen = time.time()
         record.last_message = message_type.name if message_type else "BOOTP"
+        self._save_client(record)
 
     # -- BSDP ----------------------------------------------------------------------
     def _handle_bsdp(self, packet: DhcpPacket, client: ClientClass,
@@ -384,6 +383,7 @@ class DhcpBsdpServer(asyncio.DatagramProtocol):
                 self._maybe_netboot_1_0(reply, client, bsdp_options, mac)
                 if mac in self.clients:
                     self.clients[mac].ip = str(ip)
+                    self._save_client(self.clients[mac])
                 self.events.emit("dhcp", "ack", f"ACK {ip}", client=mac, ip=str(ip))
                 return [(reply, self._destination(packet, MessageType.ACK))]
             if self.config.clients != "all" and not pool.in_pool(ip):
@@ -437,6 +437,7 @@ class DhcpBsdpServer(asyncio.DatagramProtocol):
         record.ip = str(ip)
         record.last_seen = time.time()
         record.last_message = "BOOTP"
+        self._save_client(record)
         # Some firmware (the tray-loading iMac G3's) does BSDP LIST/SELECT, then
         # boots from a plain BOOTP reply's file field. So also send the booter
         # of the image this Mac selected, or the default image. The 10.0

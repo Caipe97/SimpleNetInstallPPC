@@ -9,6 +9,7 @@ import ipaddress
 import os
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -23,6 +24,7 @@ from .net.bootparamd import (BOOTPARAM_PROG, BOOTPARAM_VERS, BootparamServer,
 from .net.nfs2 import MOUNT_PROG, MOUNT_VERS, NFS_PROG, NFS_VERS, Nfs2Server
 from .net.portmap import BroadcastListener, Portmapper
 from .roots import RootManager, default_nfs_mode
+from .store import DB_NAME, Store
 from .net.dhcp_server import DhcpBsdpServer, DhcpConfig, root_path_for
 from .net.http_server import ImageHTTPServer, start_http_server
 from .net.leases import LeasePool
@@ -176,6 +178,19 @@ def _bind_error(exc: OSError, port: int, what: str) -> StartupError:
     return StartupError(f"{what}: cannot bind port {port}: {exc}")
 
 
+def open_store(state_dir: Optional[Path], events: EventBus) -> Optional[Store]:
+    """The state database in the data folder, importing the JSON files it replaced."""
+    if state_dir is None:
+        return None
+    try:
+        store = Store.open(state_dir)
+    except (sqlite3.Error, RuntimeError) as exc:
+        raise StartupError(f"can't open {state_dir / DB_NAME}: {exc}") from exc
+    for level, message in store.import_json(state_dir):
+        events.emit("server", "import", message, level=level)
+    return store
+
+
 async def check_other_dhcp(options: ServeOptions, interface: str, mac: str,
                            server_ip: IPv4, events: EventBus) -> None:
     """Probe for other DHCP servers; raise StartupError on a conflict."""
@@ -225,6 +240,7 @@ async def serve(options: ServeOptions, events: EventBus,
     roots = RootManager(nfs_mode, address.network, events) if options.manage_roots else None
     root_statuses = await loop.run_in_executor(None, roots.sync, catalog) if roots else []
 
+    store = open_store(options.state_dir, events)
     pool = None
     if options.dhcp_mode == "full":
         if options.pool_start is None or options.pool_end is None:
@@ -232,10 +248,9 @@ async def serve(options: ServeOptions, events: EventBus,
         for ip in (options.pool_start, options.pool_end):
             if ip not in address.network:
                 raise StartupError(f"pool address {ip} is outside {address.network}")
-        state_file = options.state_dir / "leases.json" if options.state_dir else None
         excluded = [server_ip] + ([options.router] if options.router else [])
         pool = LeasePool(options.pool_start, options.pool_end, options.lease_time,
-                         excluded=excluded, state_file=state_file)
+                         excluded=excluded, store=store)
 
     http_base = None
     if options.http_port:
@@ -252,8 +267,7 @@ async def serve(options: ServeOptions, events: EventBus,
         dhcp_sock = make_udp_socket("0.0.0.0", options.dhcp_port, iface.name, broadcast=True)
     except OSError as exc:
         raise _bind_error(exc, options.dhcp_port, "DHCP/BSDP") from exc
-    bindings_file = options.state_dir / "bsdp-bindings.json" if options.state_dir else None
-    dhcp = DhcpBsdpServer(config, catalog, events, bindings_file)
+    dhcp = DhcpBsdpServer(config, catalog, events, store)
     dhcp_transport, _ = await loop.create_datagram_endpoint(lambda: dhcp, sock=dhcp_sock)
 
     tftp_config = TftpConfig(root=options.images_root, bind_ip=str(server_ip),
@@ -330,6 +344,8 @@ async def serve(options: ServeOptions, events: EventBus,
         if awake is not None:
             awake.terminate()
             awake.wait()
+        if store is not None:
+            store.close()
         events.emit("server", "stopped", "all services stopped")
 
 

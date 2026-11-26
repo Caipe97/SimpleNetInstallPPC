@@ -8,6 +8,7 @@ from netboot_server.net import bsdp
 from netboot_server.net.bsdp import BsdpMessageType, BsdpTag
 from netboot_server.net.dhcp_packet import BOOTREQUEST, DhcpPacket, MessageType, Opt
 from netboot_server.net.dhcp_server import DhcpBsdpServer, DhcpConfig
+from netboot_server.store import Store
 from netboot_server.net.leases import LeasePool
 
 from helpers import CLIENT_MAC, SERVER_IP, RecordingBus, bsdp_inform, make_image
@@ -255,17 +256,22 @@ class SharedLanTests(unittest.TestCase):
 class LeasePoolTests(unittest.TestCase):
     def test_reservation_and_persistence(self):
         with tempfile.TemporaryDirectory() as tmp:
-            state = Path(tmp) / "leases.json"
+            store = Store.open(Path(tmp))
             pool = LeasePool(IP("10.0.0.100"), IP("10.0.0.110"),
-                             reservations={"AA:00:00:00:00:01": IP("10.0.0.50")}, state_file=state)
+                             reservations={"AA:00:00:00:00:01": IP("10.0.0.50")}, store=store)
             self.assertEqual(pool.offer("aa:00:00:00:00:01"), IP("10.0.0.50"))
             self.assertTrue(pool.confirm("aa:00:00:00:00:01", IP("10.0.0.50")))
             ip = pool.offer("bb:00:00:00:00:02", requested=IP("10.0.0.105"))
             self.assertEqual(ip, IP("10.0.0.105"))
             self.assertTrue(pool.confirm("bb:00:00:00:00:02", ip))
             self.assertFalse(pool.confirm("cc:00:00:00:00:03", ip))   # taken
-            reloaded = LeasePool(IP("10.0.0.100"), IP("10.0.0.110"), state_file=state)
+            pool.release("aa:00:00:00:00:01")
+            store.close()
+            store = Store.open(Path(tmp))
+            reloaded = LeasePool(IP("10.0.0.100"), IP("10.0.0.110"), store=store)
             self.assertEqual(reloaded.lookup("bb:00:00:00:00:02").ip, IP("10.0.0.105"))
+            self.assertIsNone(reloaded.lookup("aa:00:00:00:00:01"))
+            store.close()
 
     def test_offer_expires(self):
         now = [1000.0]
