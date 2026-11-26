@@ -156,6 +156,9 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--ui-bind", default="127.0.0.1",
                        help="web UI address (default 127.0.0.1: reach it from another "
                             "computer with ssh -L 8080:127.0.0.1:8080 <this host>)")
+    serve.add_argument("--no-browser", action="store_true",
+                       help="don't open the web UI in a browser (by default it opens when serve "
+                            "starts in a terminal on this machine's desktop, not over SSH)")
     serve.add_argument("--ui-password", action="store_true",
                        help="ask for the web UI password on localhost too (on a machine other "
                             "people log in to); on any other --ui-bind address it's always asked")
@@ -367,6 +370,7 @@ def cmd_serve(args: argparse.Namespace, images_root: Path, state_dir: Path,
         keep_awake=not args.allow_sleep,
         dhcp_probe=not args.no_dhcp_probe, ignore_other_dhcp=args.ignore_other_dhcp,
         ui_port=args.ui_port, ui_bind=args.ui_bind, ui_password=args.ui_password,
+        open_browser=not args.no_browser,
         state_dir=state_dir if state_dir.is_dir() else None)
     try:
         asyncio.run(serve(options, EventBus()))

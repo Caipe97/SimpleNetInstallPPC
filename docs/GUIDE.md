@@ -26,7 +26,10 @@ sudo ./simplenetinstallppc.pyz serve
 ```
 
 It serves until you press **Ctrl-C**. While it runs, it keeps the host from
-going to sleep. Settings, images and each Mac's chosen image are kept in the
+going to sleep. Started in a terminal on the machine's desktop, it also opens
+the web UI in your browser (as you, not as root); `--no-browser` stops that.
+Over SSH it doesn't, since the browser would open on the server's screen:
+use the tunnel in section 2. Settings, images and each Mac's chosen image are kept in the
 data folder (section 8), so the next start carries on where you left off.
 
 To make the file from the source folder:
@@ -110,8 +113,9 @@ service, and keeps the data folder.
 
 ## 2. Open the web UI
 
-The web UI listens only on the server itself, at http://127.0.0.1:8080/.
-From another computer, open an SSH tunnel to the server and use the same
+The web UI listens only on the server itself, at http://127.0.0.1:8080/. On
+the server's own desktop it opens by itself when `serve` starts. From another
+computer, open an SSH tunnel to the server and use the same
 address in your browser:
 
 ```bash

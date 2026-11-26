@@ -13,6 +13,7 @@ import signal
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -74,6 +75,7 @@ class ServeOptions:
     ui_port: int = 0               # web UI port; 0 = no web UI
     ui_bind: str = "127.0.0.1"     # web UI address (localhost by default, PLAN §5)
     ui_password: bool = False      # ask for the password on localhost too (shared machines)
+    open_browser: bool = False     # open the UI in the user's browser (desktop terminals only)
     # Which network settings (netsettings.FIELD_NAMES) came from the command line;
     # they win over the saved ones. None: all of them (callers other than the CLI).
     given: Optional[Set[str]] = None
@@ -553,6 +555,9 @@ async def serve(options: ServeOptions, events: EventBus,
         if web is None and not net.running:
             # Neither the NetBoot services nor the UI to fix them: nothing to run.
             raise StartupError(net.last_error or "nothing started")
+        if web is not None and options.open_browser:
+            threading.Thread(target=_open_ui, args=(options, events), name="open-browser",
+                             daemon=True).start()
         awake = start_keep_awake(events) if options.keep_awake else None
         try:
             loop.add_signal_handler(signal.SIGINT, stop.set)
@@ -572,6 +577,19 @@ async def serve(options: ServeOptions, events: EventBus,
         if store is not None:
             store.close()
         events.emit("server", "stopped", "all services stopped")
+
+
+def _open_ui(options: ServeOptions, events: EventBus) -> None:
+    from .desktop import open_in_browser, ui_url
+    url = ui_url(options.ui_bind, options.ui_port)
+    opened, why = open_in_browser(url)
+    if opened:
+        events.emit("web", "browser", f"opened {url} in your browser")
+    elif why.startswith(("started over SSH", "not started from", "running as root", "isn't using")):
+        events.emit("web", "browser", f"not opening a browser: {why}", level=10)
+    else:
+        events.emit("web", "browser", f"couldn't open a browser ({why}); open {url} yourself",
+                    level=30)
 
 
 def interface_list() -> List[Dict[str, object]]:
