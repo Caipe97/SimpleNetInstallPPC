@@ -1,4 +1,4 @@
-"""Read Apple UDIF disk images (.dmg) without hdiutil (PLAN §3.1).
+"""Read Apple UDIF disk images (.dmg) without hdiutil.
 
 A UDIF file is the image's data, chunk by chunk, followed by a 512-byte
 ``koly`` trailer. The trailer points at the block maps (``blkx``): one

@@ -73,7 +73,7 @@ class ServeOptions:
     dhcp_probe: bool = True        # look for other DHCP servers before starting
     ignore_other_dhcp: bool = False  # start even if the probe found a conflict
     ui_port: int = 0               # web UI port; 0 = no web UI
-    ui_bind: str = "127.0.0.1"     # web UI address (localhost by default, PLAN §5)
+    ui_bind: str = "127.0.0.1"     # web UI address (localhost by default)
     ui_password: bool = False      # ask for the password on localhost too (shared machines)
     open_browser: bool = False     # open the UI in the user's browser (desktop terminals only)
     # Which network settings (netsettings.FIELD_NAMES) came from the command line;

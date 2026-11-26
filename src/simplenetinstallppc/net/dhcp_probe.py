@@ -1,4 +1,4 @@
-"""Look for other DHCP servers on the NetBoot interface (PLAN §2, DHCP safety).
+"""Look for other DHCP servers on the NetBoot interface (DHCP safety).
 
 The probe broadcasts a DHCPDISCOVER with the host's own MAC address and
 collects the OFFERs that come back. It never sends a REQUEST, so no lease is

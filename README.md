@@ -6,8 +6,7 @@ install old Macs.
 
 **Status:** PowerPC NetInstall works from Linux and macOS for 10.0 – 10.5,
 with a web UI and a service install. Intel Macs and Mac OS 9 come later. See
-the [user guide](docs/GUIDE.md) to set it up, [PLAN.md](PLAN.md) for the
-roadmap, and [docs/PHASE0.md](docs/PHASE0.md) for the hardware tests.
+the [user guide](docs/GUIDE.md) to set it up.
 
 ## What works now
 
@@ -84,5 +83,4 @@ src/simplenetinstallppc/
 packaging/            build_pyz.py (the single file), install.sh, systemd unit, launchd plist
 tests/                unit tests (stdlib unittest)
 docs/GUIDE.md         user guide
-docs/PHASE0.md        hardware test procedure
 ```

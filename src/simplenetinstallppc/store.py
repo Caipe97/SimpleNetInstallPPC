@@ -1,4 +1,4 @@
-"""The server's state in SQLite (``<data root>/db.sqlite``, PLAN §2).
+"""The server's state in SQLite (``<data root>/db.sqlite``).
 
 Holds what used to live in ``leases.json`` and ``bsdp-bindings.json``: the
 Macs seen so far, each Mac's saved image (its last BSDP SELECT, as Apple's

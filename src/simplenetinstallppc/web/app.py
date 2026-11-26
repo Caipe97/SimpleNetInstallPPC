@@ -1,4 +1,4 @@
-"""The web UI and its JSON API (PLAN §5), on the standard library's HTTP server.
+"""The web UI and its JSON API, on the standard library's HTTP server.
 
 The page in ``static/`` is plain HTML and JavaScript that talks only to the
 API below, so anything the UI does can be scripted with curl:

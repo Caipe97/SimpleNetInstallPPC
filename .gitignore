@@ -12,3 +12,8 @@ dist/
 *.iso
 !tests/fixtures/*.pcap
 !tests/fixtures/*.dmg
+
+# Local notes: the working plan and hardware test logs stay off the public repo.
+PLAN.md
+phase0.log
+docs/PHASE0.md
