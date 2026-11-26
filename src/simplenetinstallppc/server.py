@@ -832,5 +832,11 @@ def _report_catalog(catalog: Catalog, config: Optional[DhcpConfig], events: Even
             events.emit("catalog", "image", line)
     for arch in ("ppc", "i386"):
         default = catalog.default_for(arch, None)
-        if default:
+        unusable = catalog.unusable_default(arch)
+        if unusable:
+            instead = f"using {default.name!r} instead" if default else "no other image boots it"
+            events.emit("catalog", "default",
+                        f"default for {arch} is not usable: {unusable}; {instead}. "
+                        "Pick a default on the Images page or change --default.", level=30)
+        elif default:
             events.emit("catalog", "default", f"default for {arch}: {default.name!r}")

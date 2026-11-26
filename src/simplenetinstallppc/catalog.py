@@ -150,7 +150,8 @@ class Catalog:
         self.images_root = images_root.resolve()
         self.images: List[NetBootImage] = []
         # Per-architecture default image index set by the operator. Falls
-        # back to images marked IsDefault, then to the first match.
+        # back to images marked IsDefault, then to the lowest index, so a
+        # newly built image (next free index) never takes over by itself.
         self.default_index: Dict[str, int] = {}
 
     def reload(self) -> None:
@@ -189,7 +190,7 @@ class Catalog:
         return [image for image in self.images if image.supports(arch, model)]
 
     def default_for(self, arch: Optional[str], model: Optional[str]) -> Optional[NetBootImage]:
-        candidates = self.available_for(arch, model)
+        candidates = sorted(self.available_for(arch, model), key=lambda i: i.index)
         if not candidates:
             return None
         chosen = self.default_index.get(arch or "")
@@ -200,3 +201,17 @@ class Catalog:
             if image.is_default:
                 return image
         return candidates[0]
+
+    def unusable_default(self, arch: str) -> Optional[str]:
+        """Why the operator's default for arch can't be used, or None if it can."""
+        chosen = self.default_index.get(arch)
+        if chosen is None:
+            return None
+        image = self.by_index(chosen)
+        if image is None:
+            return f"there is no image {chosen}"
+        if arch not in image.architectures:
+            return f"image {chosen} {image.name!r} does not boot {arch}"
+        if not image.enabled:
+            return f"image {chosen} {image.name!r} is disabled"
+        return None
