@@ -126,13 +126,19 @@ class DataFolderTests(unittest.TestCase):
         stick = self.dir / "stick"
         stick.mkdir()
         os.environ[cli.FILE_ENV] = str(stick / "simplenetinstallppc.pyz")
-        self.assertEqual(cli.find_data_root(), (cli.system_data_root(), "the system folder"))
-        (stick / cli.PORTABLE_DIR).mkdir()            # portable: the folder is next to the file
-        self.assertEqual(cli.find_data_root(), ((stick / cli.PORTABLE_DIR).resolve(),
-                                                "next to simplenetinstallppc.pyz"))
+        # From the .pyz: next to it, whether the folder exists yet or not.
+        beside = ((stick / cli.PORTABLE_DIR).resolve(), "next to simplenetinstallppc.pyz")
+        self.assertEqual(cli.find_data_root(), beside)
+        (stick / cli.PORTABLE_DIR).mkdir()
+        self.assertEqual(cli.find_data_root(), beside)
         os.environ["NETBOOT_DATA"] = "/srv/netboot"
         self.assertEqual(cli.find_data_root()[0], Path("/srv/netboot"))
         self.assertEqual(cli.find_data_root(Path("/x"))[0], Path("/x"))
+
+    def test_installed_command_uses_the_system_folder(self):
+        for folder in ("/usr/local/bin", "/usr/bin", "/opt/homebrew/bin"):
+            os.environ[cli.FILE_ENV] = f"{folder}/simplenetinstallppc"
+            self.assertEqual(cli.find_data_root(), (cli.system_data_root(), "the system folder"))
 
     def test_from_the_source_folder(self):
         self.assertEqual(cli.find_data_root()[0], cli.system_data_root())

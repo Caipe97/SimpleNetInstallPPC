@@ -78,8 +78,8 @@ class PyzTests(unittest.TestCase):
         # the stick), not next to the private copy it runs from.
         tmp = Path(self.tmp.name)
         stick, temp = tmp / "stick", tmp / "temp"
-        data = stick / "simplenetinstallppc-data"
-        for folder in (stick, temp, data):
+        data = stick / "simplenetinstallppc-data"        # made by serve on first start
+        for folder in (stick, temp):
             folder.mkdir()
         pyz = stick / "simplenetinstallppc.pyz"
         shutil.copy2(self.pyz, pyz)

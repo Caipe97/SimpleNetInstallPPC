@@ -44,10 +44,10 @@ it can crash it. The commands in this guide
 write it as `simplenetinstallppc`; with the file, use
 `./simplenetinstallppc.pyz` (or `python3 simplenetinstallppc.pyz`) instead.
 
-### Carry everything on a USB stick
+### Everything stays next to the file
 
-To keep the images, settings and uploads with the program, make a folder
-named `simplenetinstallppc-data` next to the file:
+The images, settings and uploads go in a `simplenetinstallppc-data` folder
+next to the file, made the first time it starts:
 
 ```
 USB stick/
@@ -55,10 +55,12 @@ USB stick/
   simplenetinstallppc-data/      images, settings, uploads
 ```
 
-When that folder exists, the server uses it instead of the system folder.
-Plug the stick into another Linux or Mac, run the file, and the same images
-are there. `check` and the first line `serve` prints say which data folder
-is in use.
+So the file and what it serves travel together: plug the stick into another
+Linux or Mac, run the file, and the same images are there. `check` and the
+first line `serve` prints say which data folder is in use. To use another
+folder, give `--data <folder>`.
+
+On a USB stick:
 
 - **Format the stick as exFAT** (Linux and Mac), ext4 (Linux only) or Mac OS
   Extended (Mac only). On FAT32 no file can be 4 GiB or larger, and the
@@ -132,11 +134,8 @@ page, with the password in the `ui-password` file in the data folder:
 - **`--ui-password`** asks for it on localhost too, for a machine other
   people log in to.
 
-To read the password on Linux:
-
-```bash
-sudo cat /var/lib/netboot-server/ui-password
-```
+It's the `ui-password` file in the data folder (`check` shows where), readable
+only by root.
 
 Each `?` next to an option explains it. Until the server is set up, the UI
 opens on **Get started**, which walks through the next four sections.
@@ -306,8 +305,8 @@ marks.
 
 | | Linux | macOS |
 |---|---|---|
-| Data folder | `/var/lib/netboot-server` | `/Library/Application Support/NetBootServer` |
-| Portable data folder | `simplenetinstallppc-data` next to the `.pyz`, used instead when it exists | same |
+| Data folder | `simplenetinstallppc-data` next to `simplenetinstallppc.pyz` | same |
+| Data folder when installed in `/usr/local/bin`, or run from the source folder | `/var/lib/netboot-server` | `/Library/Application Support/NetBootServer` |
 | Images | `images/` in the data folder, one folder per image | same |
 | Uploads | `sources/` | same |
 | Settings, Macs, leases | `db.sqlite` | same |
@@ -315,7 +314,7 @@ marks.
 | Program | wherever you put `simplenetinstallppc.pyz`; `/usr/local/bin/simplenetinstallppc` if installed | same |
 
 To put the data somewhere else, give `--data <folder>` or set
-`$NETBOOT_DATA`; either wins over the other two. Deleting an image folder (then **Reload**) removes the
+`$NETBOOT_DATA`; either wins over the defaults. Deleting an image folder (then **Reload**) removes the
 image.
 
 ## 9. Troubleshooting

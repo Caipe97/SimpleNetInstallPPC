@@ -32,13 +32,20 @@ def system_data_root(platform: str = sys.platform) -> Path:
     return Path("/var/lib/netboot-server")
 
 
+# An installed command lives in one of these; its data goes in the system folder.
+SYSTEM_BIN_DIRS = {"/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/local/bin", "/usr/local/sbin",
+                   "/opt/homebrew/bin", "/opt/local/bin"}
+
+
 def find_data_root(given: Optional[Path] = None) -> Tuple[Path, str]:
-    """The data folder (images, settings, uploads, password) and why it's that one:
+    """The data folder (images, settings, uploads) and why it's that one:
 
     1. --data, or $NETBOOT_DATA;
-    2. a simplenetinstallppc-data folder next to the .pyz, if it exists, so a
-       USB stick can carry the program and everything it serves;
-    3. the system folder.
+    2. run from simplenetinstallppc.pyz: a simplenetinstallppc-data folder
+       next to it (made on first start), so the file and everything it serves
+       stay together, e.g. on a USB stick;
+    3. run from the source folder, or installed in a system folder such as
+       /usr/local/bin: the system folder.
     """
     if given:
         return given, "--data"
@@ -47,9 +54,9 @@ def find_data_root(given: Optional[Path] = None) -> Tuple[Path, str]:
         return Path(env), "$NETBOOT_DATA"
     program = program_file()
     if program is not None:
-        beside = program.resolve().parent / PORTABLE_DIR
-        if beside.is_dir():
-            return beside, f"next to {program.name}"
+        folder = program.resolve().parent
+        if str(program.parent) not in SYSTEM_BIN_DIRS and str(folder) not in SYSTEM_BIN_DIRS:
+            return folder / PORTABLE_DIR, f"next to {program.name}"
     return system_data_root(), "the system folder"
 
 
@@ -78,9 +85,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     parser.add_argument("--data", type=Path, default=None,
-                        help=f"data folder (default: $NETBOOT_DATA, else a {PORTABLE_DIR} "
-                             f"folder next to the .pyz if there is one, else "
-                             f"{system_data_root()})")
+                        help=f"data folder (default: $NETBOOT_DATA, else {PORTABLE_DIR} next to "
+                             f"the .pyz, else {system_data_root()})")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("check", help="check this host has what the server needs, and how to fix it")
@@ -354,11 +360,12 @@ def cmd_serve(args: argparse.Namespace, images_root: Path, state_dir: Path,
     setup_logging(args.verbose, args.log_file)
     logging.getLogger("netboot.server").info("data folder %s (%s)", state_dir, data_reason)
     try:
-        # First start (e.g. as a service): make the data folder for the
-        # settings, the web UI password and the images.
+        # First start: make the data folder for the settings and the images.
         images_root.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        pass
+    except OSError as exc:
+        logging.getLogger("netboot.server").error(
+            "can't make the data folder %s: %s. Give another one with --data.",
+            state_dir, exc.strerror or exc)
     given = {name: getattr(args, name) for name in FIELD_NAMES if getattr(args, name) is not None}
     network = {**NetworkSettings().__dict__, **given}
     options = ServeOptions(

@@ -44,8 +44,8 @@ sudo ./dist/simplenetinstallppc.pyz serve
 ```
 
 Copy `simplenetinstallppc.pyz` anywhere and run it there; Ctrl-C stops it.
-With a `simplenetinstallppc-data` folder next to it, the images and settings
-live there too, so one USB stick carries everything.
+The images and settings go in a `simplenetinstallppc-data` folder next to it,
+so one USB stick carries everything.
 `./simplenetinstallppc.pyz check` lists anything the host is missing. The web
 UI opens in your browser when you start it on a desktop; it's at
 http://127.0.0.1:8080/ on the server (from another computer:
