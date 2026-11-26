@@ -375,8 +375,10 @@ def make_test_image(source: Path, images_root: Path, *, dir_name: Optional[str] 
         # mounts the volume there and exports it (see roots.py).
         protocol = "NFS"
         root_directory = str(default_root_directory(images_root, target.name))
+        where = (root_directory if Path(root_directory).is_absolute()
+                 else str(images_root.parent / root_directory))
         warnings.append(f"Mac OS X {version} boots from an NFS folder: the server will mount "
-                        f"root.dmg at {root_directory} and export it")
+                        f"root.dmg at {where} and export it")
     info = {
         "Architectures": architectures,
         "BootFile": "booter",

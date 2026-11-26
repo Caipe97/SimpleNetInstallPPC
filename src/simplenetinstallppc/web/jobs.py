@@ -113,13 +113,11 @@ class BuildJobs:
             raise BuildError("pick at least one source disc")
         paths = []
         for source in request.sources:
-            if os.path.isabs(source):
-                path = Path(os.path.normpath(source))
-            elif "/" in source or source in (".", ".."):
-                raise BuildError(f"{source!r}: give an absolute path or a name in "
-                                 f"{self.sources_dir}")
-            else:
-                path = self.sources_dir / source
+            # Only discs uploaded to the sources folder: the web UI can't name
+            # other files on the server.
+            if "/" in source or "\\" in source or source in ("", ".", ".."):
+                raise BuildError(f"{source!r}: give the name of a disc in {self.sources_dir}")
+            path = self.sources_dir / source
             if path.suffix.lower() not in SOURCE_SUFFIXES or path.name.startswith("."):
                 raise BuildError(f"{path.name}: not a disc image")
             if not path.is_file():

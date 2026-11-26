@@ -1,8 +1,8 @@
-"""Finding disc images for a build: browse the server's folders, or upload.
+"""Uploading disc images for a build.
 
-Browsing lets the UI pick discs that are already on the server (a USB drive,
-a downloads folder) without copying them. Uploads put discs from the
-browser's computer into ``<data root>/sources``. Discs are often several
+Uploads put discs from the browser's computer into ``<data root>/sources``;
+builds from the web UI use only those. (Discs already on the server are built
+in place from the command line, with ``make-test-image``.) Discs are often several
 GB, so the page sends each file in chunks (``POST /api/uploads``, one chunk
 per request) to ``sources/.uploads/<name>.part``, and can ask how much has
 arrived to resume after an interruption. The last chunk moves the file into
@@ -11,13 +11,10 @@ arrived to resume after an interruption. The last chunk moves the file into
 
 from __future__ import annotations
 
-import os
-import pwd
 import shutil
-import sys
 import threading
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict
 
 from .jobs import SOURCE_SUFFIXES
 
@@ -35,58 +32,6 @@ class FileError(ValueError):
 
 def is_disc_image(name: str) -> bool:
     return not name.startswith(".") and Path(name).suffix.lower() in SOURCE_SUFFIXES
-
-
-def places(data_root: Path) -> List[Dict[str, str]]:
-    """Shortcuts for the folder browser: places where disc images usually are."""
-    found = [{"label": "Uploads (sources)", "path": str(data_root / "sources")}]
-    user = os.environ.get("SUDO_USER")
-    if user:
-        try:
-            found.append({"label": f"{user}'s home", "path": pwd.getpwnam(user).pw_dir})
-        except KeyError:
-            pass
-    elif os.environ.get("HOME"):
-        found.append({"label": "Home", "path": os.environ["HOME"]})
-    candidates = ["/Volumes"] if sys.platform == "darwin" else ["/mnt", "/media", "/run/media"]
-    for folder in candidates:
-        if Path(folder).is_dir():
-            found.append({"label": folder, "path": folder})
-    found.append({"label": "/", "path": "/"})
-    return found
-
-
-def browse(path: str, data_root: Path) -> Dict[str, object]:
-    """Subfolders and disc images in one folder of the server."""
-    if not path:
-        # The uploads folder if it exists yet, else the first shortcut that does.
-        path = next(p["path"] for p in places(data_root) if Path(p["path"]).is_dir())
-    folder = Path(path).expanduser()
-    if not folder.is_absolute():
-        raise FileError(400, "give an absolute path")
-    folder = Path(os.path.normpath(folder))
-    if not folder.is_dir():
-        raise FileError(404, f"{folder} is not a folder")
-    dirs: List[str] = []
-    images: List[Dict[str, object]] = []
-    try:
-        entries = sorted(os.scandir(folder), key=lambda e: e.name.lower())
-    except OSError as exc:
-        raise FileError(403, f"can't read {folder}: {exc.strerror or exc}") from exc
-    for entry in entries:
-        if entry.name.startswith("."):
-            continue
-        try:
-            if entry.is_dir():
-                dirs.append(entry.name)
-            elif entry.is_file() and is_disc_image(entry.name):
-                images.append({"name": entry.name, "path": str(folder / entry.name),
-                               "size": entry.stat().st_size})
-        except OSError:
-            continue
-    parent = str(folder.parent) if folder != folder.parent else None
-    return {"path": str(folder), "parent": parent, "dirs": dirs, "images": images,
-            "places": places(data_root)}
 
 
 class Uploads:

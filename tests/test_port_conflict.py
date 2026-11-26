@@ -10,13 +10,14 @@ PS = """\
  9700 python3 -m simplenetinstallppc make-test-image disc.iso --dir serve
  9800 vim src/simplenetinstallppc/server.py
  9900 python3 -m simplenetinstallppc serve -i en7
+ 9950 python3 /media/usb/simplenetinstallppc.pyz serve
 """
 
 
 class ParseServerProcessesTests(unittest.TestCase):
     def test_finds_servers_and_skips_sudo_other_commands_and_self(self):
         found = parse_server_processes(PS, exclude={9900})
-        self.assertEqual([pid for pid, _ in found], [9568, 9600])
+        self.assertEqual([pid for pid, _ in found], [9568, 9600, 9950])
 
     def test_finds_a_server_started_under_the_old_name(self):
         ps = " 4242 python3 -m netboot_server serve -i en7\n 4243 /usr/bin/netboot-server serve\n"

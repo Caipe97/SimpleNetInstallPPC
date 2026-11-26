@@ -12,7 +12,6 @@ API below, so anything the UI does can be scripted with curl:
     GET  /api/clients                  Macs seen, their saved image and last activity
     POST /api/clients/<mac>            {"image": 4} or {"image": null}
     GET  /api/sources                  disc images in <data root>/sources
-    GET  /api/browse?path=/x           subfolders and disc images in a server folder
     GET  /api/uploads?name=a.iso       how much of an upload has arrived
     POST /api/uploads?name=&offset=&total=   one chunk (raw bytes) of an upload
     POST /api/uploads/cancel?name=     drop a partial upload
@@ -42,6 +41,7 @@ import ipaddress
 import json
 import mimetypes
 import os
+import pkgutil
 import queue
 import re
 import secrets
@@ -57,10 +57,16 @@ from .. import __version__
 from ..catalog import Catalog, update_info
 from ..events import Event, EventBus
 from ..store import Store
-from .files import FileError, Uploads, browse
+from .files import FileError, Uploads
 from .jobs import BuildError, BuildJobs, BuildRequest, list_sources
 
-STATIC = Path(__file__).parent / "static"
+def static_file(name: str) -> Optional[bytes]:
+    """A file of the page, read through the import system so it also works
+    from the single-file simplenetinstallppc.pyz."""
+    try:
+        return pkgutil.get_data("simplenetinstallppc.web", f"static/{name}")
+    except OSError:
+        return None
 PASSWORD_FILE = "ui-password"
 USER = "admin"
 CSRF_HEADER = "X-Netboot-UI"
@@ -362,6 +368,10 @@ class WebServer(ThreadingHTTPServer):
         self.api = Api(ctx)
         self.password = password
         self.stopping = threading.Event()
+        # Changes with every start. The event stream sends it first: event
+        # numbers restart at 1 with a new server, so a page that sees a new
+        # instance reloads instead of waiting for numbers it already passed.
+        self.instance = secrets.token_hex(8)
         # Logins live in the store when there is one, so they survive a restart;
         # otherwise in memory. Either way only a hash of each token is kept.
         self._sessions: Dict[str, float] = {}      # token hash -> expiry
@@ -534,8 +544,6 @@ class WebHandler(BaseHTTPRequestHandler):
     def _routes(self) -> List[Route]:
         api = self.server.api
         return [
-            ("GET", re.compile(r"/api/browse"),
-             lambda: browse(self._query("path"), self.server.ctx.data_root)),
             ("GET", re.compile(r"/api/uploads"),
              lambda: api.uploads.status(self._query("name"))),
             ("POST", re.compile(r"/api/uploads"), self._upload_chunk),
@@ -631,14 +639,14 @@ class WebHandler(BaseHTTPRequestHandler):
         if "/" in name or name.startswith("."):
             self._error(404, "not found")
             return
-        file = STATIC / name
-        if not file.is_file():
+        data = static_file(name)
+        if data is None:
             self._error(404, "not found")
             return
         content_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
         if content_type.startswith("text/") or content_type.endswith("javascript"):
             content_type += "; charset=utf-8"
-        self._send(200, file.read_bytes(), content_type)
+        self._send(200, data, content_type)
 
     def _stream(self) -> None:
         events = self.server.ctx.events
@@ -657,6 +665,8 @@ class WebHandler(BaseHTTPRequestHandler):
             self.send_header("Connection", "close")
             self.end_headers()
             self.close_connection = True
+            self.wfile.write(f"event: hello\ndata: {self.server.instance}\n\n".encode())
+            self.wfile.flush()
             last = self._since()
             for event in events.since(last):
                 self._sse(event)

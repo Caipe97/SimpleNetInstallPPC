@@ -115,7 +115,7 @@ const STEP_HELP = {
   network: "Pick the network interface the Macs are plugged into. If your router hands out " +
     "addresses, BSDP only is enough for Mac OS X 10.2 and later; Full DHCP (NetBoot Macs only) " +
     "also covers 10.0/10.1 and the tray-loading iMac.",
-  image: "Pick the install CD or DVD images (every disc of a CD set), on the server or dropped " +
+  image: "Drop the install CD or DVD images (every disc of a CD set) on the Build page " +
     "from this computer, and press Build. It takes a few minutes per disc.",
   default: "The image a Mac boots when you hold N. A Mac can pick another one with the Option " +
     "key or in Startup Disk.",
@@ -314,58 +314,36 @@ $("#reload").addEventListener("click", async () => renderImages(await api("POST"
 
 // -- build ----------------------------------------------------------------------
 let shownJob = null;
-let folderPath = "";
-const picked = new Map();          // server path -> {name, size}
+const picked = new Map();          // name in the sources folder -> {name, size}
 const DISC = /\.(iso|cdr|dmg|img|toast|dc42|image)$/i;
 const enc = encodeURIComponent;
 
 function renderPicked() {
   const box = $("#picked");
+  for (const tick of document.querySelectorAll("#sources input[type=checkbox]")) {
+    tick.checked = picked.has(tick.dataset.name);
+  }
   if (!picked.size) { box.replaceChildren("none"); box.className = "note"; return; }
   box.className = "";
-  box.replaceChildren(...[...picked].map(([path, f]) => el("span", { class: "chip", title: path },
+  box.replaceChildren(...[...picked].map(([name, f]) => el("span", { class: "chip" },
     `${f.name} (${size(f.size)})`,
     el("button", { type: "button", title: "remove", on: { click: () => {
-      picked.delete(path);
-      for (const box of document.querySelectorAll("#folder input[type=checkbox]")) {
-        if (box.dataset.path === path) box.checked = false;
-      }
+      picked.delete(name);
       renderPicked();
     } } }, "×"))));
 }
 
-async function browseTo(path) {
-  const data = await api("GET", `/api/browse?path=${enc(path || "")}`);
-  folderPath = data.path;
-  $("#places").replaceChildren("Go to: ", ...data.places.map((p) =>
-    el("a", { on: { click: () => browseTo(p.path) } }, p.label)));
-  const parts = data.path.split("/").filter(Boolean);
-  const crumbs = [el("a", { on: { click: () => browseTo("/") } }, "/")];
-  parts.forEach((part, i) => {
-    const target = "/" + parts.slice(0, i + 1).join("/");
-    crumbs.push(el("a", { on: { click: () => browseTo(target) } }, part), i < parts.length - 1 ? "/" : "");
-  });
-  $("#crumbs").replaceChildren(...crumbs);
-  const base = data.path.replace(/\/$/, "");
-  const items = [];
-  if (data.parent) items.push(el("li", {}, el("a", { on: { click: () => browseTo(data.parent) } }, "../")));
-  for (const dir of data.dirs) {
-    items.push(el("li", {}, el("a", { on: { click: () => browseTo(`${base}/${dir}`) } }, `${dir}/`)));
-  }
-  for (const f of data.images) {
-    items.push(el("li", {}, el("label", {},
-      el("input", { type: "checkbox", checked: picked.has(f.path), "data-path": f.path,
-        on: { change: (e) => { if (e.target.checked) picked.set(f.path, f); else picked.delete(f.path); renderPicked(); } } }),
-      ` ${f.name} `, el("span", { class: "note" }, size(f.size)))));
-  }
-  if (!data.dirs.length && !data.images.length) items.push(el("li", { class: "note" }, "no folders or disc images here"));
-  $("#folder").replaceChildren(...items);
+async function loadSources() {
+  const data = await api("GET", "/api/sources");
+  $("#uploaded").hidden = !data.sources.length;
+  $("#sources").replaceChildren(...data.sources.map((f) => el("li", {}, el("label", {},
+    el("input", { type: "checkbox", checked: picked.has(f.name), "data-name": f.name,
+      on: { change: (e) => {
+        if (e.target.checked) picked.set(f.name, f); else picked.delete(f.name);
+        renderPicked();
+      } } }),
+    ` ${f.name} `, el("span", { class: "note" }, size(f.size))))));
 }
-
-$("#go").addEventListener("click", () => browseTo($("#go-path").value.trim()).catch(() => {}));
-$("#go-path").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); $("#go").click(); }
-});
 
 // Uploads: each file goes up in 16 MiB chunks and resumes where the server left off.
 const CHUNK = 16 * 1024 * 1024;
@@ -452,9 +430,9 @@ async function upload(item) {
     item.state.textContent = `uploaded (${size(total)})`;
   }
   status = await api("GET", `/api/uploads?name=${enc(name)}`);
-  picked.set(status.path, { name, size: total });
+  picked.set(status.name, { name: status.name, size: total });
   renderPicked();
-  if (current === "build") browseTo(folderPath).catch(() => {});
+  if (current === "build") loadSources().catch(() => {});
 }
 
 // Folders dropped from Finder or a file manager arrive as directory entries.
@@ -602,9 +580,17 @@ $("#log-level").addEventListener("change", redrawLog);
 $("#log-pause").addEventListener("change", redrawLog);
 $("#log-clear").addEventListener("click", () => { allEvents.length = 0; redrawLog(); });
 
+let serverInstance = null;
+
 function connect() {
   const source = new EventSource(`/api/events/stream?since=${lastSeq}`);
   source.onopen = () => { $("#conn").textContent = "live"; };
+  // The server was restarted while this page was open: its event numbers
+  // started again and everything shown is from the old one, so start over.
+  source.addEventListener("hello", (msg) => {
+    if (serverInstance !== null && msg.data !== serverInstance) location.reload();
+    serverInstance = msg.data;
+  });
   source.onmessage = (msg) => {
     const e = JSON.parse(msg.data);
     if (e.seq <= lastSeq) return;
@@ -626,7 +612,7 @@ const pages = {
   dashboard: loadDashboard,
   network: loadNetwork,
   images: loadImages,
-  build: () => Promise.all([browseTo(folderPath), loadBuilds()]),
+  build: () => Promise.all([loadSources(), loadBuilds()]),
   clients: () => loadClients(true),
   logs: async () => {},
 };

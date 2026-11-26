@@ -25,6 +25,7 @@ from .net.bootparamd import (BOOTPARAM_PROG, BOOTPARAM_VERS, BootparamServer,
                              forwarding_works)
 from .net.nfs2 import MOUNT_PROG, MOUNT_VERS, NFS_PROG, NFS_VERS, Nfs2Server
 from .net.portmap import BroadcastListener, Portmapper
+from .checks import service_hint
 from .roots import RootManager, default_nfs_mode
 from .store import DB_NAME, Store
 from .net.dhcp_server import DhcpBsdpServer, DhcpConfig, root_path_for
@@ -157,7 +158,10 @@ def parse_server_processes(ps_output: str, exclude: Set[int]) -> List[Tuple[int,
             continue
         for i, word in enumerate(words):
             # The old names too, for a server started before the rename.
-            if os.path.basename(word) in ("simplenetinstallppc", "netboot_server", "netboot-server"):
+            name = os.path.basename(word)
+            if name.endswith(".pyz"):          # python3 simplenetinstallppc.pyz serve
+                name = name[:-4]
+            if name in ("simplenetinstallppc", "netboot_server", "netboot-server"):
                 command_word = next((w for w in words[i + 1:] if w in CLI_COMMANDS), None)
                 if command_word == "serve":
                     found.append((pid, command))
@@ -181,7 +185,7 @@ def port_in_use_message(what: str, port: int, servers: List[Tuple[int, str]]) ->
         return (f"{what}: port {port} is already in use by another simplenetinstallppc "
                 f"(pid {pid}). To pick up new or changed images, reload it instead: "
                 f"sudo kill -HUP {pid}. To restart with other options, stop it first: "
-                f"sudo kill {pid}.")
+                f"sudo kill {pid}. " + service_hint()).strip()
     return f"{what}: port {port} is already in use. {PORT_HINTS.get(port, '')}".strip()
 
 
@@ -506,9 +510,19 @@ def saved_settings(store: Optional[Store], events: EventBus) -> Optional[Network
         return None
 
 
+def with_default_export(options: ServeOptions) -> ServeOptions:
+    """Our own NFS server can export the images folder itself, so --nfs-export
+    is only needed with the system's nfsd (macOS)."""
+    mode = default_nfs_mode() if options.nfs_mode == "auto" else options.nfs_mode
+    if options.nfs_export or mode != "builtin":
+        return options
+    return dataclasses.replace(options, nfs_export=str(options.images_root.resolve()))
+
+
 async def serve(options: ServeOptions, events: EventBus,
                 stop: Optional[asyncio.Event] = None) -> None:
     loop = asyncio.get_running_loop()
+    options = with_default_export(options)
     store = open_store(options.state_dir, events)
     catalog = Catalog(options.images_root)
     catalog.default_index.update(options.defaults)

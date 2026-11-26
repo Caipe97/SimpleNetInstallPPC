@@ -99,6 +99,24 @@ class NetBootImage:
                 or (self.directory / "mach.macosx").is_file())
 
 
+def resolve_root_directory(value: str, images_root: Path, folder_name: str) -> str:
+    """Where a 10.0/10.1 image's root volume is mounted.
+
+    Relative paths are under the data folder (``roots/<image folder>``), so a
+    data folder can move: to a USB stick, another machine, another mount
+    point. An absolute ``.../roots/<image folder>`` path from where the folder
+    used to be is moved along with it.
+    """
+    data_root = images_root.resolve().parent
+    path = Path(value)
+    if not path.is_absolute():
+        return str(data_root / path)
+    if (path.parent.name == "roots" and path.name == folder_name
+            and path.parent.parent != data_root):
+        return str(data_root / "roots" / folder_name)
+    return value
+
+
 def load_image(directory: Path, images_root: Path) -> NetBootImage:
     with open(directory / INFO_PLIST, "rb") as fh:
         info = plistlib.load(fh)
@@ -120,7 +138,9 @@ def load_image(directory: Path, images_root: Path) -> NetBootImage:
         enabled_models=frozenset(info.get("EnabledSystemIdentifiers", [])),
         disabled_models=frozenset(info.get("DisabledSystemIdentifiers", [])),
         boot_file=str(info.get("BootFile", "booter")),
-        root_directory=str(info["RootDirectory"]) if info.get("RootDirectory") else None,
+        root_directory=(resolve_root_directory(str(info["RootDirectory"]), images_root,
+                                               directory.name)
+                        if info.get("RootDirectory") else None),
         os_version=str(info.get("osVersion", "")),
     )
 

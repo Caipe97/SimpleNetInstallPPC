@@ -55,10 +55,15 @@ def is_folder_style(version: str) -> bool:
 
 
 def default_root_directory(images_root: Path, dir_name: str) -> Path:
-    # Paths without spaces, so an rp= boot-arg still works as a fallback.
+    """The RootDirectory written into a new 10.0/10.1 image.
+
+    macOS: a fixed path without spaces, which its nfsd exports and an rp=
+    boot-arg can name. Linux: relative to the data folder (see
+    catalog.resolve_root_directory), so the data folder can move.
+    """
     if sys.platform == "darwin":
         return Path("/private/var/netboot") / dir_name
-    return images_root.parent / "roots" / dir_name
+    return Path("roots") / dir_name
 
 
 def default_nfs_mode() -> str:

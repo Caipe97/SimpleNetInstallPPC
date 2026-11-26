@@ -9,20 +9,52 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from . import __version__
 from .catalog import Catalog
 from .events import EventBus, setup_logging
 
 
-def default_data_root() -> Path:
-    env = os.environ.get("NETBOOT_DATA")
-    if env:
-        return Path(env)
-    if sys.platform == "darwin":
+PORTABLE_DIR = "simplenetinstallppc-data"
+FILE_ENV = "SIMPLENETINSTALLPPC_FILE"     # the .pyz this runs from, before the private copy
+
+
+def program_file() -> Optional[Path]:
+    """The simplenetinstallppc.pyz being run, or None when run from the source."""
+    path = os.environ.get(FILE_ENV) or getattr(globals().get("__loader__"), "archive", None)
+    return Path(path) if path else None
+
+
+def system_data_root(platform: str = sys.platform) -> Path:
+    if platform == "darwin":
         return Path("/Library/Application Support/NetBootServer")
     return Path("/var/lib/netboot-server")
+
+
+def find_data_root(given: Optional[Path] = None) -> Tuple[Path, str]:
+    """The data folder (images, settings, uploads, password) and why it's that one:
+
+    1. --data, or $NETBOOT_DATA;
+    2. a simplenetinstallppc-data folder next to the .pyz, if it exists, so a
+       USB stick can carry the program and everything it serves;
+    3. the system folder.
+    """
+    if given:
+        return given, "--data"
+    env = os.environ.get("NETBOOT_DATA")
+    if env:
+        return Path(env), "$NETBOOT_DATA"
+    program = program_file()
+    if program is not None:
+        beside = program.resolve().parent / PORTABLE_DIR
+        if beside.is_dir():
+            return beside, f"next to {program.name}"
+    return system_data_root(), "the system folder"
+
+
+def default_data_root() -> Path:
+    return find_data_root()[0]
 
 
 def _ip(value: str) -> ipaddress.IPv4Address:
@@ -46,8 +78,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     parser.add_argument("--data", type=Path, default=None,
-                        help=f"data folder (default {default_data_root()}, or $NETBOOT_DATA)")
+                        help=f"data folder (default: $NETBOOT_DATA, else a {PORTABLE_DIR} "
+                             f"folder next to the .pyz if there is one, else "
+                             f"{system_data_root()})")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("check", help="check this host has what the server needs, and how to fix it")
 
     sub.add_parser("interfaces", help="list network interfaces")
 
@@ -132,6 +168,13 @@ def build_parser() -> argparse.ArgumentParser:
     probe.add_argument("--interface", "-i", required=True)
     probe.add_argument("--timeout", type=float, default=3.0)
     return parser
+
+
+def cmd_check(data_root: Path, data_reason: str) -> int:
+    from .checks import MISSING, report, run_checks
+    checks = run_checks(data_root=data_root, data_reason=data_reason)
+    print(report(checks))
+    return 1 if any(c.state == MISSING for c in checks) else 0
 
 
 def cmd_interfaces() -> int:
@@ -297,10 +340,19 @@ def cmd_probe_dhcp(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_serve(args: argparse.Namespace, images_root: Path, state_dir: Path) -> int:
+def cmd_serve(args: argparse.Namespace, images_root: Path, state_dir: Path,
+              data_reason: str = "--data") -> int:
+    import logging
     from .netsettings import FIELD_NAMES, NetworkSettings
     from .server import ServeOptions, StartupError, serve
     setup_logging(args.verbose, args.log_file)
+    logging.getLogger("netboot.server").info("data folder %s (%s)", state_dir, data_reason)
+    try:
+        # First start (e.g. as a service): make the data folder for the
+        # settings, the web UI password and the images.
+        images_root.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
     given = {name: getattr(args, name) for name in FIELD_NAMES if getattr(args, name) is not None}
     network = {**NetworkSettings().__dict__, **given}
     options = ServeOptions(
@@ -323,12 +375,54 @@ def cmd_serve(args: argparse.Namespace, images_root: Path, state_dir: Path) -> i
     return 0
 
 
+RUN_COPY_ENV = "SIMPLENETINSTALLPPC_RUN_COPY"
+
+
+def run_from_private_copy() -> None:
+    """For ``serve`` from a .pyz: carry on from a private copy of the file.
+
+    Python reads modules and the web pages out of the .pyz while it runs, by
+    path. Replacing that file (a newer build, a copy over it) or removing it
+    (unplugging the USB stick it's on) would break the running server, so it
+    runs from a copy in a temporary folder, deleted when it stops.
+    """
+    archive = getattr(globals().get("__loader__"), "archive", None)
+    if not archive or os.environ.get(RUN_COPY_ENV) or not os.path.isfile(archive):
+        return
+    import shutil
+    import tempfile
+    folder = tempfile.mkdtemp(prefix="simplenetinstallppc-")
+    copy = os.path.join(folder, os.path.basename(archive))
+    try:
+        shutil.copy2(archive, copy)
+    except OSError:
+        shutil.rmtree(folder, ignore_errors=True)
+        return                                  # carry on from the original
+    os.environ[RUN_COPY_ENV] = folder
+    os.environ[FILE_ENV] = archive          # its data folder may be next to the original
+    os.execv(sys.executable, [sys.executable, copy] + sys.argv[1:])
+
+
+def _remove_run_copy() -> None:
+    folder = os.environ.get(RUN_COPY_ENV)
+    if folder and os.path.basename(folder).startswith("simplenetinstallppc-"):
+        import shutil
+        shutil.rmtree(folder, ignore_errors=True)
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
-    data_root = args.data or default_data_root()
+    if args.command == "serve" and argv is None:
+        run_from_private_copy()
+        if os.environ.get(RUN_COPY_ENV):
+            import atexit
+            atexit.register(_remove_run_copy)
+    data_root, data_reason = find_data_root(args.data)
     images_root = data_root / "images"
     setup_logging(args.verbose)
     try:
+        if args.command == "check":
+            return cmd_check(data_root, data_reason)
         if args.command == "interfaces":
             return cmd_interfaces()
         if args.command == "images":
@@ -346,7 +440,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.command == "probe-dhcp":
             return cmd_probe_dhcp(args)
         if args.command == "serve":
-            return cmd_serve(args, images_root, data_root)
+            return cmd_serve(args, images_root, data_root, data_reason)
     except (OSError, ValueError, argparse.ArgumentTypeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

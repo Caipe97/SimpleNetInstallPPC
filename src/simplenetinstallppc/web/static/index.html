@@ -91,25 +91,23 @@
 </section>
 
 <section id="build">
-  <h2>Build an install image <button type="button" class="help" aria-label="Help" data-help="Pick every disc of the install set (browse the server or drop files from this computer), set options if you like, and build. One build runs at a time.">?</button></h2>
+  <h2>Build an install image <button type="button" class="help" aria-label="Help" data-help="Drop every disc of the install set, set options if you like, and build. One build runs at a time. Discs already on the server can be built where they are from its command line: sudo simplenetinstallppc make-test-image disc1.iso disc2.iso">?</button></h2>
 
   <div id="drop" class="drop">
     <strong>Drop discs or a folder here</strong>
     or <button type="button" id="pick-files">Choose files&hellip;</button>
     <button type="button" id="pick-folder">Choose folder&hellip;</button>
-    <button type="button" class="help" aria-label="Help" id="drop-help" data-help="Uploads disc images (.iso, .cdr, .dmg, .img, .toast) from this computer to the server's sources folder. An interrupted upload resumes where it stopped.">?</button>
+    <button type="button" class="help" aria-label="Help" id="drop-help" data-help="Uploads disc images (.iso, .cdr, .dmg, .img, .toast) to the server's sources folder and picks them. An interrupted upload resumes where it stopped.">?</button>
     <input type="file" id="file-input" multiple hidden
       accept=".iso,.cdr,.dmg,.img,.toast,.dc42,.image">
     <input type="file" id="folder-input" webkitdirectory hidden>
     <ul id="uploads"></ul>
   </div>
 
-  <div class="browser">
-    <p><span id="places"></span></p>
-    <p><strong>On the server:</strong> <span id="crumbs"></span>
-      <input id="go-path" placeholder="/path/to/folder"> <button type="button" id="go">Go</button>
-      <button type="button" class="help" aria-label="Help" data-help="Discs already on the server (a USB drive, a downloads folder) are used where they are, without copying.">?</button></p>
-    <ul id="folder" class="files"></ul>
+  <div id="uploaded" hidden>
+    <p><strong>Uploaded earlier:</strong>
+      <button type="button" class="help" aria-label="Help" data-help="Discs already in the sources folder. Tick them to build from them again.">?</button></p>
+    <ul id="sources" class="files"></ul>
   </div>
 
   <p><strong>Picked:</strong> <span id="picked" class="note">none</span></p>

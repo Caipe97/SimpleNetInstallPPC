@@ -342,22 +342,25 @@ class BuildTests(WebTestCase):
         self.assertIn("build", [e.subsystem for e in self.events.recent() if e.level == 40])
         self.assertEqual(self.reloads, 0)
 
-    def test_discs_from_any_folder(self):
+    def test_only_uploaded_discs(self):
+        # The UI no longer browses the server: a build names discs in sources/.
         outside = self.root / "elsewhere" / "Jaguar Disc 1.iso"
         outside.parent.mkdir()
         outside.write_bytes(b"x")
         (self.root / "sources" / "ok.iso").write_bytes(b"x")
-        (self.root / "notes.txt").write_text("no")
-        for sources in ([], ["../ok.iso"], ["sub/ok.iso"], ["missing.iso"],
-                        [str(self.root / "notes.txt")], [str(outside), str(outside)]):
+        (self.root / "sources" / "two.iso").write_bytes(b"x")
+        (self.root / "sources" / "notes.txt").write_text("no")
+        for sources in ([], ["../ok.iso"], ["sub/ok.iso"], ["missing.iso"], ["notes.txt"],
+                        [str(outside)], ["ok.iso", "ok.iso"], [".."], [""]):
             status, data = self.request("POST", "/api/builds", {"sources": sources})
             self.assertEqual(status, 400, sources)
         status, data = self.request("POST", "/api/builds", {"sources": ["ok.iso"], "dir": "../x"})
         self.assertEqual(status, 400)
         self.assertEqual(self.commands, [])
-        job = self.post("/api/builds", {"sources": [str(outside), "ok.iso"]})
+        job = self.post("/api/builds", {"sources": ["two.iso", "ok.iso"]})
         self.assertTrue(wait_for(lambda: self.jobs.get(job["id"]).state != "running"))
-        self.assertEqual(self.commands[0][1], [outside, self.root / "sources" / "ok.iso"])
+        self.assertEqual(self.commands[0][1], [self.root / "sources" / "two.iso",
+                                               self.root / "sources" / "ok.iso"])
 
     def test_real_command_line(self):
         jobs = BuildJobs(self.root, self.events)
@@ -381,20 +384,8 @@ class FileTests(WebTestCase):
         conn.close()
         return response.status, payload
 
-    def test_browse(self):
-        folder = self.root / "discs"
-        (folder / "Jaguar").mkdir(parents=True)
-        (folder / "Panther.cdr").write_bytes(b"x" * 3)
-        (folder / "readme.txt").write_text("no")
-        (folder / ".hidden.iso").write_text("no")
-        data = self.get(f"/api/browse?path={folder}")
-        self.assertEqual((data["path"], data["parent"], data["dirs"]), (str(folder), str(self.root),
-                                                                         ["Jaguar"]))
-        self.assertEqual(data["images"], [{"name": "Panther.cdr", "path": str(folder / "Panther.cdr"),
-                                           "size": 3}])
-        self.assertEqual(self.get("/api/browse")["path"], str(self.root / "sources"))
-        self.assertEqual(self.request("GET", "/api/browse?path=relative")[0], 400)
-        self.assertEqual(self.request("GET", f"/api/browse?path={folder}/nope")[0], 404)
+    def test_server_folders_are_not_browsable(self):
+        self.assertEqual(self.request("GET", f"/api/browse?path={self.root}")[0], 404)
 
     def test_chunked_upload_with_resume(self):
         body = bytes(range(256)) * 40          # 10240 bytes
@@ -491,6 +482,9 @@ class EventTests(WebTestCase):
 
         self.assertTrue(read_until(b'"backlog"'))
         self.assertIn(b"text/event-stream", received)
+        # First the server's instance, so a page can tell it was restarted.
+        hello = f"event: hello\ndata: {self.server.instance}\n\n".encode()
+        self.assertLess(received.index(hello), received.index(b'"backlog"'))
         threading.Timer(0.1, lambda: self.events.emit("tftp", "done", "live one")).start()
         self.assertTrue(read_until(b'"live one"'))
         sock.close()
