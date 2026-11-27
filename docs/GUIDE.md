@@ -265,8 +265,67 @@ The main commands:
 - `set-image`: change the image a Mac boots;
 - `probe-dhcp -i <interface>`: list the DHCP servers on a network.
 
-Options given to `serve` win over the web UI's saved settings, and are saved
-in turn. If you installed the service, give it options this way:
+Each command also takes `--help`, for example `simplenetinstallppc serve --help`.
+
+### Options for every command
+
+These go before the command name, e.g. `simplenetinstallppc -v --data /srv/netboot serve`.
+
+| Option | What it does |
+|---|---|
+| `--data <folder>` | The data folder (images, settings, uploads). Default: `$NETBOOT_DATA`, else `simplenetinstallppc-data` next to the `.pyz`, else the system folder (section 8). |
+| `-v`, `--verbose` | Debug logging. |
+| `--version` | Print the version and exit. |
+
+### `serve`
+
+The network options (`--interface` to `--lease-time`) are the same settings as
+the web UI's Network page. Left out, the ones last applied (here or in the UI)
+are used. Given, they win over the saved ones and are saved in turn.
+
+| Option | Default | What it does |
+|---|---|---|
+| `-i`, `--interface <name>` | the last one used | Interface to serve on, e.g. `en0` or `eth0` (see `interfaces`). |
+| `--server-ip <address>` | the interface's address | Which address to use if the interface has several. |
+| `--dhcp-mode bsdp-only\|full` | `bsdp-only` | `bsdp-only`: an existing DHCP server (the router) hands out addresses and this server only answers BSDP. `full`: this server hands out addresses too, from its own pool. |
+| `--dhcp-clients netboot\|all` | `netboot` | Full mode only: answer only NetBooting Macs (safe next to another DHCP server), or every DHCP client (an isolated network). |
+| `--pool-start <address>`, `--pool-end <address>` | — | Full mode: the first and last address to hand out. Both are required in full mode, must be in the interface's network and mustn't include the server's own address. |
+| `--router <address>` | — | Full mode: the gateway given to the Macs. |
+| `--dns <address>` | — | Full mode: a DNS server given to the Macs. Repeat it for several. |
+| `--lease-time <seconds>` | `3600` | Full mode: lease length. |
+| `--http-port <port>` | `80` | Port for the HTTP root images (10.3 to 10.5). `0` turns HTTP off. |
+| `--nfs-export <path>` | — | NFS export that contains the images folder. Needed for NFS disk images (10.2) served by macOS's `nfsd`; see below. |
+| `--default ARCH=INDEX` | the image set in the UI | Default image per architecture, e.g. `ppc=3`. Repeat it for `i386`. |
+| `--tftp-max-blksize <bytes>` | `1468` | Largest TFTP block size offered to the Macs. |
+| `--nfs auto\|system\|builtin` | `auto` | NFS for 10.0/10.1 folder roots: macOS's `nfsd` (`system`), the built-in read-only NFS v2 server (`builtin`), or `auto` (system on macOS, built-in on Linux). |
+| `--no-bootparamd` | | Don't run bootparamd (used by 10.0 and 10.1). |
+| `--no-manage-roots` | | Don't mount and export the 10.0/10.1 root folders automatically. |
+| `--no-dhcp-probe` | | Don't look for other DHCP servers before starting. |
+| `--ignore-other-dhcp` | | Start even if the probe finds a DHCP server that conflicts (an overlapping pool, or `--dhcp-clients all`). |
+| `--allow-sleep` | | Let the host sleep while serving. By default it's kept awake. |
+| `--ui-port <port>` | `8080` | Web UI port. `0` turns the UI off. |
+| `--ui-bind <address>` | `127.0.0.1` | Web UI address. Any address other than localhost asks for the password (section 2). |
+| `--ui-password` | | Ask for the web UI password on localhost too. |
+| `--no-browser` | | Don't open the web UI in a browser when `serve` starts on the desktop. |
+| `--log-file <path>` | | Also write the log to this file. |
+
+### Other commands
+
+| Command | Arguments and options |
+|---|---|
+| `check` | none. Exits with 1 if something required is missing. |
+| `interfaces` | none. |
+| `images` | none. |
+| `clients` | none. |
+| `inspect <disc image>` | The disc image to list the volumes of. |
+| `make-test-image <disc image>...` | One or more `.dmg`/`.img`/`.iso`/`.cdr` files; give every disc of a multi-CD set, in any order, to merge them. `--name <text>`: the name shown in Startup Disk and the Option-key picker. `--index <1-4095>`: image index (default: the next free one). `--dir <folder>`: folder name, keep it short. `--protocol HTTP\|NFS` (default `HTTP`): how the Mac mounts the root; 10.0 to 10.2 need `NFS`. `--volume <n>`: which volume, numbered as `inspect` lists them. `--force`: replace an existing folder. |
+| `build-mkext <image>` | (Re)build an image's driver cache. `<image>`: folder name or index (see `images`). `--all`: include every kext, not only those needed at boot. `--no-compress`: store kexts uncompressed. `--output <path>`: write there instead of into the image (single-architecture images only). |
+| `set-image <mac> <index\|default>` | The Mac's Ethernet address, and the image index it should boot next, or `default` to clear its choice. Works while `serve` runs. |
+| `probe-dhcp -i <interface>` | `-i`, `--interface` (required). `--timeout <seconds>` (default `3`): how long to wait for answers. |
+
+### Giving options to the service
+
+If you installed the service, give it options this way:
 
 - **Linux:** `sudo systemctl edit simplenetinstallppc`, then add
   ```

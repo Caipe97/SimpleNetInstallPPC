@@ -72,7 +72,10 @@ on the server's desktop, it opens in the browser by itself.
 
 `./simplenetinstallppc.pyz check` lists what the host is missing (for example
 the `hfsplus` module, or closed firewall ports). The [user guide](docs/GUIDE.md)
-covers setup, building images, booting the Macs and troubleshooting.
+covers setup, building images, booting the Macs and troubleshooting, and
+lists every command and option in
+[Command line and options](docs/GUIDE.md#7-command-line-and-options)
+(or run `./simplenetinstallppc.pyz serve --help`).
 
 To run from the source folder instead:
 `sudo PYTHONPATH=src python3 -m simplenetinstallppc serve`.
