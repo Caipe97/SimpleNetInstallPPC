@@ -79,24 +79,52 @@ On a USB stick:
 ```
 
 lists anything missing and how to fix it. Run it with sudo to check that it
-runs as root. In short:
+runs as root.
 
-- **Linux:** the kernel's `hfsplus` module, to mount Mac discs. Debian's and
-  Fedora's standard kernels include it. If `check` says it's missing on
-  Fedora, install `kernel-modules-core` and `kernel-modules-extra`; on
-  Ubuntu, install `linux-modules-extra-$(uname -r)`. The `ip`, `mount` and
-  `modprobe` commands are there on any normal install.
-- **Linux firewall:** the Macs must reach UDP 67 (DHCP and BSDP), UDP 69
-  (TFTP), TCP 80 (HTTP) and UDP 111 (portmapper), and UDP ports above 1024.
-  Those carry the built-in NFS server and bootparamd, which 10.0–10.2 use.
-  `check` reads firewalld's rules and prints the commands to open what's
-  closed. Fedora Workstation already opens ports above 1024.
+**On every host:**
+
+- **Python 3.9 or later.** Nothing else from Python: no packages to install.
+- **Root.** `serve` binds ports below 1024 and mounts disk images, so it runs
+  with sudo (or as the service). The listing commands (`images`,
+  `interfaces`, `inspect`) work without it.
+- **A wired Ethernet interface** on the same network as the Macs. The Macs
+  NetBoot only over Ethernet.
 - **No other DHCP or TFTP server on the same machine.** One already running
   there (dnsmasq, a DHCP server, tftpd, or macOS Internet Sharing) holds
   port 67 or 69, and `serve` says so when it starts. A DHCP server on
   another machine, such as your router, is fine (section 3).
-- **macOS:** nothing to install. If the Application Firewall asks, allow
-  Python to accept incoming connections.
+- **Disk space** for the images: about the size of each disc (around 650 MB
+  per CD, up to about 8 GB per DVD), plus the uploaded discs while a build
+  runs.
+- **Not a FAT drive** for the data folder. FAT can't hold files of 4 GiB or
+  more, and the 10.3–10.5 DVD images are. Use exFAT, ext4 or Mac OS
+  Extended; `check` warns about FAT.
+
+**Linux:**
+
+| Needs | Used for | If it's missing |
+|---|---|---|
+| The kernel's `hfsplus` module, and loop devices | Mounting Mac discs and images | Debian's and Fedora's standard kernels include it. Fedora: install `kernel-modules-core` and `kernel-modules-extra`. Ubuntu: `linux-modules-extra-$(uname -r)`. |
+| `ip` (iproute2) | Listing interfaces and addresses | Install `iproute2`. |
+| `mount`, `umount` (util-linux) | Mounting images | Install `util-linux`. |
+| `modprobe` (kmod) | Loading `hfsplus` | Install `kmod`. |
+| `systemd-inhibit` (optional) | Keeping the host awake while serving | Without it, turn off automatic suspend yourself. |
+| `xdg-open` (optional) | Opening the web UI on the desktop | Open http://127.0.0.1:8080/ by hand. |
+
+The required commands are there on any normal install. No NFS, TFTP or DHCP
+packages are needed: those servers are built in.
+
+**Linux firewall:** the Macs must reach UDP 67 (DHCP and BSDP), UDP 69
+(TFTP), TCP 80 (HTTP) and UDP 111 (portmapper), and UDP ports above 1024.
+Those carry the built-in NFS server and bootparamd, which 10.0–10.2 use.
+`check` reads firewalld's rules and prints the commands to open what's
+closed. Fedora Workstation already opens ports above 1024. With ufw, `check`
+prints the `ufw allow` commands to run. The web UI's port 8080 needs no
+rule: it only listens on 127.0.0.1.
+
+**macOS** (tested on macOS 14): nothing to install. It uses `hdiutil`,
+`diskutil`, `ditto`, `nfsd` and `caffeinate`, which come with macOS. If the
+Application Firewall asks, allow Python to accept incoming connections.
 
 ### Optional: install the command, or a service
 

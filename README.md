@@ -11,6 +11,72 @@ Apple's own way to do this was the NetBoot service in Mac OS X Server. This
 project does the same job without it. It's written in Python, uses only the
 standard library, and can be built into a single file.
 
+## Requirements
+
+On every host:
+
+- Python 3.9 or later. No other packages: everything uses the standard
+  library.
+- Root (`sudo`), to bind ports 67, 69, 80 and 111 and to mount disk images.
+- A wired Ethernet interface on the same network as the Macs.
+- No other DHCP or TFTP server on the same machine (dnsmasq, tftpd, macOS
+  Internet Sharing). A DHCP server elsewhere, such as your router, is fine.
+- Disk space for the images: about 650 MB per CD, up to about 8 GB per DVD.
+- A data folder that isn't on a FAT drive, since the DVD images are 4 GiB or
+  larger. exFAT, ext4 and Mac OS Extended work.
+
+On Linux:
+
+- The kernel's `hfsplus` module, to mount Mac discs. Fedora:
+  `kernel-modules-core` and `kernel-modules-extra`. Ubuntu:
+  `linux-modules-extra-$(uname -r)`.
+- `ip` (iproute2), `mount`/`umount` (util-linux) and `modprobe` (kmod). These
+  are there on any normal install.
+- Firewall open to the Macs on UDP 67, UDP 69, TCP 80, UDP 111 and UDP ports
+  above 1024 (the last two for 10.0 to 10.2).
+- Optional: `systemd-inhibit` keeps the host awake while serving, and
+  `xdg-open` opens the web UI.
+
+On macOS:
+
+- Nothing to install. `hdiutil`, `diskutil`, `ditto`, `nfsd` and `caffeinate`
+  come with the system.
+- If the Application Firewall asks, allow Python to accept incoming
+  connections.
+
+`./simplenetinstallppc.pyz check` lists what the host is missing and how to
+fix it. The details are in
+[What the host needs](docs/GUIDE.md#what-the-host-needs).
+
+## Running it
+
+Build the single file, then run it as root:
+
+```bash
+python3 packaging/build_pyz.py
+```
+
+```bash
+sudo ./dist/simplenetinstallppc.pyz serve
+```
+
+It runs until Ctrl-C. Images and settings are kept in a
+`simplenetinstallppc-data` folder next to the file, so the file can be copied
+anywhere, for example to a USB stick, along with its data.
+
+The web UI is at http://127.0.0.1:8080/ and only accepts connections from the
+machine itself, so it has no password. From another computer, use an SSH
+tunnel: `ssh -N -L 8080:127.0.0.1:8080 <server>`. When started from a terminal
+on the server's desktop, it opens in the browser by itself.
+
+The [user guide](docs/GUIDE.md) covers setup, building images, booting the
+Macs and troubleshooting, and lists every command and option in
+[Command line and options](docs/GUIDE.md#7-command-line-and-options) (or run
+`./simplenetinstallppc.pyz serve --help`).
+
+To run from the source folder instead:
+`sudo PYTHONPATH=src python3 -m simplenetinstallppc serve`.
+
 ## Status
 
 It works for the Macs and versions below. Everything else is untested.
@@ -46,39 +112,6 @@ Known problems and gaps:
   tried on a real host.
 - Disk images: raw images, ISO, `.cdr`, `.toast` and `.dmg` (UDIF, including
   compressed ones) are read. Disk Copy 4.2 and NDIF `.img` files are not.
-
-## Running it
-
-Build the single file, then run it as root (it needs ports 67, 69, 80 and
-111, and mounts disk images):
-
-```bash
-python3 packaging/build_pyz.py
-```
-
-```bash
-sudo ./dist/simplenetinstallppc.pyz serve
-```
-
-It runs until Ctrl-C. Images and settings are kept in a
-`simplenetinstallppc-data` folder next to the file, so the file can be copied
-anywhere, for example to a USB stick, along with its data. Only Python 3.9 or
-later is needed.
-
-The web UI is at http://127.0.0.1:8080/ and only accepts connections from the
-machine itself, so it has no password. From another computer, use an SSH
-tunnel: `ssh -N -L 8080:127.0.0.1:8080 <server>`. When started from a terminal
-on the server's desktop, it opens in the browser by itself.
-
-`./simplenetinstallppc.pyz check` lists what the host is missing (for example
-the `hfsplus` module, or closed firewall ports). The [user guide](docs/GUIDE.md)
-covers setup, building images, booting the Macs and troubleshooting, and
-lists every command and option in
-[Command line and options](docs/GUIDE.md#7-command-line-and-options)
-(or run `./simplenetinstallppc.pyz serve --help`).
-
-To run from the source folder instead:
-`sudo PYTHONPATH=src python3 -m simplenetinstallppc serve`.
 
 ## How it works
 
